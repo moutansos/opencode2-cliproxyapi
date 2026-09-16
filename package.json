@@ -51,7 +51,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun --format esm --external @opencode/plugin && tsc --emitDeclarationOnly",
+    "build": "rm -rf dist && bun build ./src/index.ts --outdir ./dist --target bun --format esm --external @opencode/plugin && tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src",
     "check": "bun run typecheck && bun run test && bun run build",
