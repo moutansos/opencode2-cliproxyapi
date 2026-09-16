@@ -29,3 +29,15 @@ bun run check
 For substantial behavior changes, open an issue first so the approach can be
 discussed.
 
+## Releases
+
+1. Bump `version` in `package.json`.
+2. Roll the `Unreleased` section of `CHANGELOG.md` into the new version and
+   update the link definitions at the bottom of the file.
+3. Tag the release commit `vX.Y.Z` and push the tag.
+4. Publish a GitHub release for that tag. That triggers the npm publish
+   workflow, which publishes through npm trusted publishing.
+
+The tag must match the `package.json` version exactly. The workflow verifies
+`vX.Y.Z` against the package version and fails the publish if they differ.
+

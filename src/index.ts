@@ -36,7 +36,7 @@ type Cost = Model.Info["cost"][number]
 type Money = Cost["input"]
 
 export default Plugin.define({
-  id: "opencode-cliproxyapi",
+  id: "opencode2-cliproxyapi",
   async setup(ctx) {
     const options = readOptions(ctx.options)
     const providerID = Provider.ID.make(options.providerID ?? DEFAULT_PROVIDER_ID)

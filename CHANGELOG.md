@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-16
+
+First release published to npm as `opencode2-cliproxyapi`. The version starts
+at 0.2.0 because the tags `v0.1.0`-`v0.1.2` belong to the upstream V1 package.
+
 ### Added
 
 - Generate reasoning-effort variants from models.dev `reasoning_options`.
@@ -17,6 +22,12 @@ and this project follows [Semantic Versioning](https://semver.org/).
   thinking/effort variants, using OpenCode's bundled Anthropic runtime.
 - Send CLIProxyAPI a bearer token on Anthropic requests (it does not accept
   `x-api-key` alone).
+
+### Changed
+
+- Renamed the plugin id from `opencode-cliproxyapi` to
+  `opencode2-cliproxyapi`, so it cannot collide with the V1 plugin's storage
+  scope and log lines when both are installed.
 
 ### Fixed
 
@@ -55,5 +66,6 @@ Initial release of `opencode2-cliproxyapi`, the OpenCode V2 port of
 - Manual merging of existing `provider.cliproxyapi` config. V2 layers user
   configuration over registered provider sources automatically.
 
-[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/moutansos/opencode2-cliproxyapi/releases/tag/v0.2.0
 [0.1.0]: https://github.com/moutansos/opencode2-cliproxyapi/releases/tag/v0.1.0

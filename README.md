@@ -1,6 +1,7 @@
 # OpenCode 2 CLIProxyAPI
 
 [![CI](https://github.com/moutansos/opencode2-cliproxyapi/actions/workflows/ci.yml/badge.svg)](https://github.com/moutansos/opencode2-cliproxyapi/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/opencode2-cliproxyapi.svg)](https://www.npmjs.com/package/opencode2-cliproxyapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Use every model exposed by [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
@@ -25,7 +26,8 @@ variants. Everything else uses OpenAI-compatible `/v1/chat/completions` (or
 
 ## Quick start
 
-You need OpenCode V2, a running CLIProxyAPI server, and one of its API keys.
+You need OpenCode V2 (2.0 or newer), a running CLIProxyAPI server, and one of
+its API keys.
 
 ### 1. Configure the plugin
 
@@ -51,6 +53,10 @@ Open your global OpenCode config:
   ]
 }
 ```
+
+`package` can be pinned to a specific release, such as
+`"opencode2-cliproxyapi@0.2.0"`. Omitting the version tracks the latest
+release.
 
 The URL may include `/v1`, but it is not required. If `baseURL` is omitted, the
 plugin uses `http://localhost:8317/v1`.
