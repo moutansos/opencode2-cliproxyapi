@@ -15,8 +15,9 @@ The plugin discovers CLIProxyAPI's live `/v1/models` catalog whenever the plugin
 loads, then registers them as a provider with `ctx.provider.transform`. Available
 models appear in the normal `/models` picker under **CLIProxyAPI**. Model names,
 capabilities, limits, and costs are enriched from live metadata on
-[models.dev](https://models.dev/), and models that expose Anthropic-compatible
-endpoints are routed through `/v1/messages`. No model IDs are hard-coded.
+[models.dev](https://models.dev/). No model IDs are hard-coded. Requests use
+the provider's OpenAI-compatible `/v1/chat/completions` endpoint (or
+`/v1/responses` when `protocol` is `responses`).
 
 ## Quick start
 
@@ -72,7 +73,7 @@ OpenCode whenever the model catalog on CLIProxyAPI changes.
 | `apiKey` | `CLIPROXY_API_KEY` | CLIProxyAPI key |
 | `providerID` | `cliproxyapi` | ID used in `provider/model` names |
 | `providerName` | `CLIProxyAPI` | Name displayed in the model picker |
-| `protocol` | `chat` | Default protocol: `chat` uses `/chat/completions`; `responses` uses `/responses`. Models marked as Anthropic-compatible by dynamic metadata override this per model. |
+| `protocol` | `chat` | Default protocol: `chat` uses `/chat/completions`; `responses` uses `/responses`. |
 | `modelMetadataURL` | `https://models.dev/api.json` | Dynamic model metadata. Set to `false` to disable enrichment and use only inferred defaults. |
 | `discoveryTimeoutMs` | `10000` | Startup model-discovery timeout |
 

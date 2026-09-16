@@ -16,9 +16,6 @@ const DEFAULT_MODEL_METADATA_URL = "https://models.dev/api.json"
 
 const CHAT_PACKAGE = "@opencode/ai/providers/openai-compatible"
 const RESPONSES_PACKAGE = "@opencode/ai/providers/openai-compatible/responses"
-const MESSAGES_PACKAGE = "@opencode/ai/providers/anthropic-compatible"
-
-const MESSAGES_NPM = "@ai-sdk/anthropic"
 
 type ConnectorOptions = {
   baseURL?: string
@@ -111,7 +108,6 @@ export function buildModel(input: {
     ...Model.Info.default(input.providerID, modelID),
     name: metadata?.name ?? displayName(input.model.id),
     ...(metadata?.family ? { family: Model.Family.make(metadata.family) } : {}),
-    ...(resolved.npm === MESSAGES_NPM ? { package: MESSAGES_PACKAGE } : {}),
     capabilities: {
       tools: metadata?.toolCall ?? !image,
       input: metadata?.modalities?.input ?? (image || supportsAttachments(input.model.id) ? ["text", "image"] : ["text"]),

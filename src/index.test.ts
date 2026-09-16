@@ -181,14 +181,14 @@ describe("buildModel", () => {
     },
   }
 
-  test("routes Anthropic-compatible models through the messages package", () => {
+  test("enriches Anthropic-compatible models without overriding the provider package", () => {
     const model = buildModel({
       providerID,
       model: { id: "messages-model", ownedBy: "acme" },
       metadata,
     })
 
-    expect(model.package).toBe("@opencode/ai/providers/anthropic-compatible")
+    expect(model.package).toBeUndefined()
     expect(model.name).toBe("Messages Model")
     expect(model.family).toBe("messages")
     expect(model.capabilities).toEqual({
@@ -217,12 +217,12 @@ describe("buildModel", () => {
     ).toEqual([])
   })
 
-  test("leaves other models on the provider protocol", () => {
+  test("does not set a per-model package override", () => {
     expect(
       buildModel({ providerID, model: { id: "chat-model", ownedBy: "chat" }, metadata }).package,
     ).toBeUndefined()
     expect(
-      buildModel({ providerID, model: { id: "model-level-chat", ownedBy: "acme" }, metadata })
+      buildModel({ providerID, model: { id: "messages-model", ownedBy: "acme" }, metadata })
         .package,
     ).toBeUndefined()
   })

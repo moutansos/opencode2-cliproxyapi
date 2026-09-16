@@ -13,6 +13,13 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - Fall back to an existing `providers.cliproxyapi.settings` connection when
   plugin options and environment variables are omitted.
 
+### Fixed
+
+- Stop setting a per-model `@opencode/ai/providers/anthropic-compatible`
+  package. OpenCode cannot resolve that package for plugin-registered
+  providers, which broke Claude models such as `cliproxyapi/claude-opus-5`.
+  Discovered models now inherit the provider's OpenAI-compatible package.
+
 ## [0.1.0] - 2026-09-16
 
 Initial release of `opencode2-cliproxyapi`, the OpenCode V2 port of
