@@ -16,7 +16,7 @@ function context(
   return {
     registered,
     ctx: {
-      options,
+      options: { refreshIntervalMs: 0, ...options },
       provider: {
         get: async () => {
           if (!existing) throw new Error("provider not found")
@@ -26,6 +26,12 @@ function context(
           callback({ add: (input) => registered.push(input) })
           return { dispose: async () => {} }
         },
+      },
+      aisdk: {
+        hook: async () => ({ dispose: async () => {} }),
+      },
+      session: {
+        hook: async () => ({ dispose: async () => {} }),
       },
     } as unknown as PluginTypes.Context,
   }
@@ -181,14 +187,14 @@ describe("buildModel", () => {
     },
   }
 
-  test("enriches Anthropic-compatible models without overriding the provider package", () => {
+  test("routes Anthropic-compatible models through the messages package", () => {
     const model = buildModel({
       providerID,
       model: { id: "messages-model", ownedBy: "acme" },
       metadata,
     })
 
-    expect(model.package).toBeUndefined()
+    expect(model.package).toBe("@opencode/ai/providers/anthropic")
     expect(model.name).toBe("Messages Model")
     expect(model.family).toBe("messages")
     expect(model.capabilities).toEqual({
@@ -202,27 +208,60 @@ describe("buildModel", () => {
     ] as Model.Info["cost"])
   })
 
-  test("builds reasoning-effort variants from model metadata", () => {
+  test("builds Anthropic thinking variants from model metadata", () => {
     expect(
       buildModel({ providerID, model: { id: "messages-model", ownedBy: "acme" }, metadata })
         .variants,
     ).toEqual([
-      { id: "low", settings: { reasoningEffort: "low" } },
-      { id: "high", settings: { reasoningEffort: "high" } },
-      { id: "max", settings: { reasoningEffort: "max" } },
+      {
+        id: "low",
+        settings: { thinking: { type: "adaptive", display: "summarized" }, effort: "low" },
+      },
+      {
+        id: "high",
+        settings: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
+      },
+      {
+        id: "max",
+        settings: { thinking: { type: "adaptive", display: "summarized" }, effort: "max" },
+      },
     ] as Model.Info["variants"])
-
-    expect(
-      buildModel({ providerID, model: { id: "chat-model", ownedBy: "chat" }, metadata }).variants,
-    ).toEqual([])
   })
 
-  test("does not set a per-model package override", () => {
+  test("uses OpenAI reasoningEffort variants for non-Anthropic models", () => {
+    expect(
+      buildModel({
+        providerID,
+        model: { id: "gpt-5.6-luna", ownedBy: "openai" },
+        metadata: {
+          openai: {
+            models: { "gpt-5.6-luna": { reasoningEfforts: ["none", "low", "high"] } },
+          },
+        },
+      }).variants,
+    ).toEqual([
+      { id: "none", settings: { reasoningEffort: "none" } },
+      { id: "low", settings: { reasoningEffort: "low" } },
+      { id: "high", settings: { reasoningEffort: "high" } },
+    ] as Model.Info["variants"])
+  })
+
+  test("defaults Claude models without metadata to the messages package", () => {
+    const model = buildModel({
+      providerID,
+      model: { id: "claude-opus-5", ownedBy: "anthropic" },
+      metadata: {},
+    })
+    expect(model.package).toBe("@opencode/ai/providers/anthropic")
+    expect(model.variants.map((variant) => variant.id)).toEqual(["low", "medium", "high"])
+  })
+
+  test("leaves OpenAI-compatible models on the provider package", () => {
     expect(
       buildModel({ providerID, model: { id: "chat-model", ownedBy: "chat" }, metadata }).package,
     ).toBeUndefined()
     expect(
-      buildModel({ providerID, model: { id: "messages-model", ownedBy: "acme" }, metadata })
+      buildModel({ providerID, model: { id: "model-level-chat", ownedBy: "acme" }, metadata })
         .package,
     ).toBeUndefined()
   })

@@ -11,12 +11,16 @@ This is the OpenCode V2 port of
 targets OpenCode V1. The V1 plugin API does not run in V2, so this package is a
 separate release built on `@opencode/plugin`.
 
-The plugin discovers CLIProxyAPI's live `/v1/models` catalog whenever the plugin
-loads, then registers them as a provider with `ctx.provider.transform`. Available
-models appear in the normal `/models` picker under **CLIProxyAPI**. Model names,
-capabilities, limits, and costs are enriched from live metadata on
-[models.dev](https://models.dev/). No model IDs are hard-coded. Requests use
-the provider's OpenAI-compatible `/v1/chat/completions` endpoint (or
+The plugin discovers CLIProxyAPI's live `/v1/models` catalog whenever it loads
+(and refreshes it in the background), then registers them as a provider with
+`ctx.provider.transform`. Available models appear in the normal `/models`
+picker under **CLIProxyAPI**. Model names, capabilities, limits, costs, and
+reasoning variants are enriched from live metadata on
+[models.dev](https://models.dev/). No model IDs are hard-coded.
+
+Claude models owned by Anthropic use OpenCode's Anthropic Messages runtime
+against CLIProxyAPI's `/v1/messages` endpoint, including thinking/effort
+variants. Everything else uses OpenAI-compatible `/v1/chat/completions` (or
 `/v1/responses` when `protocol` is `responses`).
 
 ## Quick start
@@ -62,8 +66,9 @@ Start OpenCode and run `/models`:
 opencode
 ```
 
-Choose **CLIProxyAPI**, select a model, and use OpenCode normally. Restart
-OpenCode whenever the model catalog on CLIProxyAPI changes.
+Choose **CLIProxyAPI**, select a model, and use OpenCode normally. The plugin
+refreshes the catalog every five minutes; you can also restart OpenCode to
+pick up changes immediately.
 
 ## Configuration
 
@@ -73,9 +78,10 @@ OpenCode whenever the model catalog on CLIProxyAPI changes.
 | `apiKey` | `CLIPROXY_API_KEY` | CLIProxyAPI key |
 | `providerID` | `cliproxyapi` | ID used in `provider/model` names |
 | `providerName` | `CLIProxyAPI` | Name displayed in the model picker |
-| `protocol` | `chat` | Default protocol: `chat` uses `/chat/completions`; `responses` uses `/responses`. |
+| `protocol` | `chat` | Default protocol for non-Anthropic models: `chat` uses `/chat/completions`; `responses` uses `/responses`. Claude models still use `/v1/messages`. |
 | `modelMetadataURL` | `https://models.dev/api.json` | Dynamic model metadata. Set to `false` to disable enrichment and use only inferred defaults. |
 | `discoveryTimeoutMs` | `10000` | Startup model-discovery timeout |
+| `refreshIntervalMs` | `300000` | Background catalog refresh interval. Set to `0` to refresh only at startup. |
 
 If model metadata cannot be reached, the plugin logs a warning and keeps the
 CLIProxyAPI-discovered models available with inferred capabilities and the

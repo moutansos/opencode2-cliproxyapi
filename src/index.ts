@@ -13,9 +13,13 @@ const DEFAULT_PROVIDER_ID = "cliproxyapi"
 const DEFAULT_PROVIDER_NAME = "CLIProxyAPI"
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000
 const DEFAULT_MODEL_METADATA_URL = "https://models.dev/api.json"
+const DEFAULT_REFRESH_MS = 5 * 60_000
 
 const CHAT_PACKAGE = "@opencode/ai/providers/openai-compatible"
 const RESPONSES_PACKAGE = "@opencode/ai/providers/openai-compatible/responses"
+const MESSAGES_PACKAGE = "@opencode/ai/providers/anthropic"
+const ANTHROPIC_NPM = "@ai-sdk/anthropic"
+const DEFAULT_ANTHROPIC_EFFORTS = ["low", "medium", "high"] as const
 
 type ConnectorOptions = {
   baseURL?: string
@@ -25,6 +29,7 @@ type ConnectorOptions = {
   protocol?: "chat" | "responses"
   modelMetadataURL?: string | false
   discoveryTimeoutMs?: number
+  refreshIntervalMs?: number
 }
 
 type Cost = Model.Info["cost"][number]
@@ -46,42 +51,71 @@ export default Plugin.define({
     const apiKey =
       options.apiKey ?? process.env.CLIPROXY_API_KEY ?? stringOption(existingSettings.apiKey)
     const timeoutMs = options.discoveryTimeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS
+    const refreshMs = options.refreshIntervalMs ?? DEFAULT_REFRESH_MS
 
-    const [catalog, metadataDiscovery] = await Promise.all([
-      discoverModels({ baseURL, apiKey, timeoutMs }),
-      discoverMetadata({
-        url: options.modelMetadataURL ?? DEFAULT_MODEL_METADATA_URL,
-        timeoutMs,
-      }),
-    ])
+    const source = {
+      info: {
+        ...Provider.Info.empty(providerID),
+        name: options.providerName ?? DEFAULT_PROVIDER_NAME,
+        activation: "enabled" as const,
+        package: options.protocol === "responses" ? RESPONSES_PACKAGE : CHAT_PACKAGE,
+        settings: {
+          baseURL,
+          ...(apiKey ? { apiKey } : {}),
+        },
+      },
+      models: [] as Model.Info[],
+    }
 
-    if (metadataDiscovery.error) console.warn(`[cliproxyapi] ${metadataDiscovery.error}`)
+    const refresh = async (initial: boolean) => {
+      const [catalog, metadataDiscovery] = await Promise.all([
+        discoverModels({ baseURL, apiKey, timeoutMs }),
+        discoverMetadata({
+          url: options.modelMetadataURL ?? DEFAULT_MODEL_METADATA_URL,
+          timeoutMs,
+        }),
+      ])
 
-    const models = catalog.map((model) =>
-      buildModel({
-        providerID,
-        model,
-        metadata: metadataDiscovery.catalog,
-      }),
-    )
+      if (metadataDiscovery.error) console.warn(`[cliproxyapi] ${metadataDiscovery.error}`)
+
+      source.models = catalog.map((model) =>
+        buildModel({
+          providerID,
+          model,
+          metadata: metadataDiscovery.catalog,
+        }),
+      )
+
+      if (!initial) await ctx.provider.reload()
+      console.log(`[cliproxyapi] discovered ${source.models.length} models from ${baseURL}`)
+    }
+
+    await refresh(true)
 
     await ctx.provider.transform((editor) => {
-      editor.add({
-        info: {
-          ...Provider.Info.empty(providerID),
-          name: options.providerName ?? DEFAULT_PROVIDER_NAME,
-          activation: "enabled",
-          package: options.protocol === "responses" ? RESPONSES_PACKAGE : CHAT_PACKAGE,
-          settings: {
-            baseURL,
-            ...(apiKey ? { apiKey } : {}),
-          },
-        },
-        models,
-      })
+      editor.add({ info: source.info, models: source.models })
     })
 
-    console.log(`[cliproxyapi] discovered ${models.length} models from ${baseURL}`)
+    await ctx.session.hook(
+      "model.request",
+      (event) => {
+        if (!apiKey) return
+        event.headers.authorization ??= `Bearer ${apiKey}`
+      },
+      { providerID },
+    )
+
+    if (refreshMs <= 0) return
+
+    const timer = setInterval(() => {
+      void refresh(false).catch((error) => {
+        console.warn(
+          `[cliproxyapi] catalog refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      })
+    }, refreshMs)
+    timer.unref?.()
+    return () => clearInterval(timer)
   },
 })
 
@@ -103,21 +137,26 @@ export function buildModel(input: {
   const resolved = resolveMetadata(input.metadata, input.model)
   const metadata = resolved.metadata
   const image = isImageModel(input.model.id)
+  const anthropic = usesAnthropicMessages(input.model, resolved.npm)
+  const efforts = metadata?.reasoningEfforts ?? (anthropic ? [...DEFAULT_ANTHROPIC_EFFORTS] : undefined)
 
   return {
     ...Model.Info.default(input.providerID, modelID),
     name: metadata?.name ?? displayName(input.model.id),
     ...(metadata?.family ? { family: Model.Family.make(metadata.family) } : {}),
+    ...(anthropic ? { package: MESSAGES_PACKAGE } : {}),
     capabilities: {
       tools: metadata?.toolCall ?? !image,
-      input: metadata?.modalities?.input ?? (image || supportsAttachments(input.model.id) ? ["text", "image"] : ["text"]),
+      input:
+        metadata?.modalities?.input ??
+        (image || supportsAttachments(input.model.id) ? ["text", "image"] : ["text"]),
       output: metadata?.modalities?.output ?? (image ? ["image"] : ["text"]),
     },
-    ...(metadata?.reasoningEfforts
+    ...(efforts
       ? {
-          variants: metadata.reasoningEfforts.map((effort) => ({
+          variants: efforts.map((effort) => ({
             id: Model.VariantID.make(effort),
-            settings: { reasoningEffort: effort },
+            settings: anthropic ? anthropicEffort(effort) : { reasoningEffort: effort },
           })),
         }
       : {}),
@@ -140,6 +179,17 @@ export function buildModel(input: {
   }
 }
 
+export function usesAnthropicMessages(model: CatalogModel, npm?: string) {
+  return npm === ANTHROPIC_NPM || model.ownedBy === "anthropic"
+}
+
+function anthropicEffort(effort: string) {
+  return {
+    thinking: { type: "adaptive", display: "summarized" },
+    effort,
+  }
+}
+
 function resolveMetadata(
   catalog: ModelMetadataCatalog,
   model: CatalogModel,
@@ -148,8 +198,6 @@ function resolveMetadata(
   const owned = owner?.models[model.id]
   if (owned) return { metadata: owned, npm: owned.npm ?? owner?.npm }
 
-  // The catalog may not report an owner OpenCode knows about. Metadata found by
-  // model ID alone still describes the model, but it cannot select its protocol.
   for (const provider of Object.values(catalog)) {
     const metadata = provider.models[model.id]
     if (metadata) return { metadata }
@@ -189,6 +237,10 @@ function readOptions(input: Record<string, unknown>): ConnectorOptions {
       typeof input.discoveryTimeoutMs === "number" && input.discoveryTimeoutMs > 0
         ? input.discoveryTimeoutMs
         : undefined,
+    refreshIntervalMs:
+      typeof input.refreshIntervalMs === "number" && input.refreshIntervalMs >= 0
+        ? input.refreshIntervalMs
+        : undefined,
   }
 }
 
@@ -220,3 +272,4 @@ function isImageModel(modelID: string) {
 function supportsAttachments(modelID: string) {
   return /^(?:claude|gemini|gpt)/i.test(modelID)
 }
+

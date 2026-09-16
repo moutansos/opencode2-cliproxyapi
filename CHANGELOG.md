@@ -12,13 +12,17 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - Generate reasoning-effort variants from models.dev `reasoning_options`.
 - Fall back to an existing `providers.cliproxyapi.settings` connection when
   plugin options and environment variables are omitted.
+- Refresh the CLIProxyAPI catalog in the background.
+- Route Anthropic-owned Claude models through `/v1/messages` with native
+  thinking/effort variants, using OpenCode's bundled Anthropic runtime.
+- Send CLIProxyAPI a bearer token on Anthropic requests (it does not accept
+  `x-api-key` alone).
 
 ### Fixed
 
-- Stop setting a per-model `@opencode/ai/providers/anthropic-compatible`
-  package. OpenCode cannot resolve that package for plugin-registered
-  providers, which broke Claude models such as `cliproxyapi/claude-opus-5`.
-  Discovered models now inherit the provider's OpenAI-compatible package.
+- `@opencode/ai/providers/anthropic-compatible` cannot be imported from
+  OpenCode's bundled server, which broke Claude models. Use
+  `@opencode/ai/providers/anthropic` instead.
 
 ## [0.1.0] - 2026-09-16
 
