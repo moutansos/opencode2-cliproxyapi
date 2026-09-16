@@ -7,12 +7,12 @@ Contributions are welcome.
 Requirements:
 
 - Bun 1.3 or newer
-- OpenCode 1.18 or newer for manual integration testing
+- OpenCode 2.0 or newer for manual integration testing
 
 Set up the project:
 
 ```bash
-git clone https://github.com/yourcasualdev/opencode-cliproxyapi.git
+git clone https://github.com/moutansos/opencode-cliproxyapi.git
 cd opencode-cliproxyapi
 bun install
 bun run check

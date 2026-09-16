@@ -1,30 +1,28 @@
-# OpenCode CLIProxyAPI
+# OpenCode 2 CLIProxyAPI
 
-[![CI](https://github.com/yourcasualdev/opencode-cliproxyapi/actions/workflows/ci.yml/badge.svg)](https://github.com/yourcasualdev/opencode-cliproxyapi/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/opencode-cliproxyapi)](https://www.npmjs.com/package/opencode-cliproxyapi)
+[![CI](https://github.com/moutansos/opencode-cliproxyapi/actions/workflows/ci.yml/badge.svg)](https://github.com/moutansos/opencode-cliproxyapi/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Use every model exposed by [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
-directly in [OpenCode](https://opencode.ai/).
+directly in [OpenCode V2](https://opencode.ai/v2/docs/).
 
-The plugin discovers CLIProxyAPI's live `/v1/models` catalog whenever OpenCode
-starts. Available models appear in the normal `/models` picker under
-**CLIProxyAPI**. OpenCode Go models that expose Anthropic-compatible endpoints
-are automatically routed through `/v1/messages` using live model metadata from
-[models.dev](https://models.dev/); the remaining discovered models continue to
-use the provider's configured default protocol. No model IDs are hard-coded.
+This is the OpenCode V2 port of
+[`opencode-cliproxyapi`](https://www.npmjs.com/package/opencode-cliproxyapi), which
+targets OpenCode V1. The V1 plugin API does not run in V2, so this package is a
+separate release built on `@opencode/plugin`.
+
+The plugin discovers CLIProxyAPI's live `/v1/models` catalog whenever the plugin
+loads, then registers them as a provider with `ctx.provider.transform`. Available
+models appear in the normal `/models` picker under **CLIProxyAPI**. Model names,
+capabilities, limits, and costs are enriched from live metadata on
+[models.dev](https://models.dev/), and models that expose Anthropic-compatible
+endpoints are routed through `/v1/messages`. No model IDs are hard-coded.
 
 ## Quick start
 
-You need OpenCode, a running CLIProxyAPI server, and one of its API keys.
+You need OpenCode V2, a running CLIProxyAPI server, and one of its API keys.
 
-### 1. Install
-
-```bash
-opencode plugin opencode-cliproxyapi --global
-```
-
-### 2. Save your connection
+### 1. Configure the plugin
 
 Open your global OpenCode config:
 
@@ -32,20 +30,19 @@ Open your global OpenCode config:
 ~/.config/opencode/opencode.json
 ```
 
-The installer may have created `opencode.jsonc` instead. Either filename works.
-Configure the plugin entry with your persistent server URL and API key:
+`opencode.jsonc` works too. Add the plugin with your server URL and API key:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": [
-    [
-      "opencode-cliproxyapi",
-      {
+  "plugins": [
+    {
+      "package": "opencode2-cliproxyapi",
+      "options": {
         "baseURL": "http://your-server:8317",
         "apiKey": "your-cli-proxy-api-key"
       }
-    ]
+    }
   ]
 }
 ```
@@ -56,21 +53,7 @@ plugin uses `http://localhost:8317/v1`.
 Keep this global config private because it contains your API key. Do not copy
 the connection into a project's `opencode.json` or commit it to a repository.
 
-### 3. Verify
-
-```bash
-opencode models cliproxyapi
-```
-
-You should see models reported by your server:
-
-```text
-cliproxyapi/claude-sonnet-4-6
-cliproxyapi/gpt-5.6-terra
-cliproxyapi/gemini-3.1-pro-low
-```
-
-### 4. Select a model
+### 2. Select a model
 
 Start OpenCode and run `/models`:
 
@@ -81,29 +64,7 @@ opencode
 Choose **CLIProxyAPI**, select a model, and use OpenCode normally. Restart
 OpenCode whenever the model catalog on CLIProxyAPI changes.
 
-> This release stores the connection in OpenCode's global config instead of
-> using the `/connect` screen. Model selection itself uses the standard
-> `/models` experience.
-
 ## Configuration
-
-The recommended configuration is the global plugin entry shown above:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": [
-    [
-      "opencode-cliproxyapi",
-      {
-        "baseURL": "http://your-server:8317",
-        "apiKey": "your-cli-proxy-api-key",
-        "providerName": "My CLIProxyAPI"
-      }
-    ]
-  ]
-}
-```
 
 | Plugin option | Default | Purpose |
 | --- | --- | --- |
@@ -112,11 +73,12 @@ The recommended configuration is the global plugin entry shown above:
 | `providerID` | `cliproxyapi` | ID used in `provider/model` names |
 | `providerName` | `CLIProxyAPI` | Name displayed in the model picker |
 | `protocol` | `chat` | Default protocol: `chat` uses `/chat/completions`; `responses` uses `/responses`. Models marked as Anthropic-compatible by dynamic metadata override this per model. |
-| `modelMetadataURL` | `https://models.dev/api.json` | Dynamic model-level protocol metadata. Set to `false` to disable enrichment and use only the default protocol. |
+| `modelMetadataURL` | `https://models.dev/api.json` | Dynamic model metadata. Set to `false` to disable enrichment and use only inferred defaults. |
 | `discoveryTimeoutMs` | `10000` | Startup model-discovery timeout |
 
 If model metadata cannot be reached, the plugin logs a warning and keeps the
-CLIProxyAPI-discovered models available with the configured default protocol.
+CLIProxyAPI-discovered models available with inferred capabilities and the
+configured default protocol.
 
 ### Optional environment variables
 
@@ -131,12 +93,15 @@ export CLIPROXY_API_KEY="your-cli-proxy-api-key"
 Put these lines in your shell profile if you want them to persist. Explicit
 plugin options in `opencode.json` take precedence over environment variables.
 
-Existing `provider.cliproxyapi` settings are preserved, so individual models
-can be customized:
+### Customizing discovered models
+
+The plugin registers a provider source. Anything you configure under
+`providers.cliproxyapi` in `opencode.json` is layered on top of it, so
+individual models can still be customized:
 
 ```json
 {
-  "provider": {
+  "providers": {
     "cliproxyapi": {
       "models": {
         "gpt-5.6-terra": {
@@ -154,12 +119,6 @@ can be customized:
 
 ## Troubleshooting
 
-### `Missing API key`
-
-Check that the global plugin entry contains a non-empty `apiKey`, then restart
-OpenCode. If you chose environment variables instead, ensure
-`CLIPROXY_API_KEY` is available to the process that starts OpenCode.
-
 ### No CLIProxyAPI models appear
 
 First check the API directly:
@@ -169,21 +128,23 @@ curl -H "Authorization: Bearer your-cli-proxy-api-key" \
   "http://your-server:8317/v1/models"
 ```
 
-Then restart OpenCode and run:
+Then check the plugin's own startup messages in the OpenCode server log:
 
 ```bash
-opencode models cliproxyapi
+grep cliproxyapi ~/.local/share/opencode/log/opencode.log
 ```
 
 ### Environment configuration works in one terminal but not another
 
-Move the connection to the recommended global OpenCode config, or add the
-environment variables to your shell profile.
+OpenCode V2 runs a shared background service, so environment variables must be
+available to that service rather than to one terminal. Move the connection into
+the global OpenCode config, or export the variables from your shell profile and
+restart the service with `opencode service restart`.
 
 ## Development
 
 ```bash
-git clone https://github.com/yourcasualdev/opencode-cliproxyapi.git
+git clone https://github.com/moutansos/opencode-cliproxyapi.git
 cd opencode-cliproxyapi
 bun install
 bun run check
@@ -195,11 +156,16 @@ The repository's `opencode.json` loads the local build for integration testing:
 bun run build
 export CLIPROXY_BASE_URL="http://your-server:8317"
 export CLIPROXY_API_KEY="your-cli-proxy-api-key"
-opencode models cliproxyapi
+opencode
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and
 [SECURITY.md](SECURITY.md) for private vulnerability reporting.
+
+## Credits
+
+Original OpenCode V1 plugin by [İbrahim BABAL](https://github.com/yourcasualdev)
+at [yourcasualdev/opencode-cliproxyapi](https://github.com/yourcasualdev/opencode-cliproxyapi).
 
 ## License
 

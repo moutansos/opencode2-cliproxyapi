@@ -7,36 +7,36 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.2] - 2026-07-28
+## [0.1.0] - 2026-09-16
 
-### Fixed
-
-- Dynamically route models with Anthropic protocol metadata through
-  `/v1/messages` instead of OpenAI-compatible chat completions, without
-  hard-coding model IDs.
-- Preserve discovered model protocol metadata when users customize individual
-  model settings.
-
-## [0.1.1] - 2026-07-25
+Initial release of `opencode2-cliproxyapi`, the OpenCode V2 port of
+[`opencode-cliproxyapi`](https://www.npmjs.com/package/opencode-cliproxyapi)
+`0.1.2`. The V1 plugin API does not run in V2, so this is a separate package.
 
 ### Changed
 
-- Made persistent global OpenCode configuration the recommended setup flow.
-- Moved temporary environment-variable setup to an optional alternative.
-- Clarified API-key handling and troubleshooting.
-
-## [0.1.0] - 2026-07-25
+- Ported the plugin entrypoint from the V1 `Plugin` function and `config` hook
+  to `Plugin.define` with a `setup` function built on `@opencode/plugin`.
+- Registered the CLIProxyAPI provider and its discovered models through
+  `ctx.provider.transform` instead of mutating OpenCode's config object.
+- Replaced V1 `npm` provider packages with V2 native provider packages:
+  `@opencode/ai/providers/openai-compatible`,
+  `@opencode/ai/providers/openai-compatible/responses`, and
+  `@opencode/ai/providers/anthropic-compatible` for Anthropic-compatible models.
+- Replaced V1 model fields (`tool_call`, `modalities`, `attachment`) with the V2
+  `Model.Info` shape (`capabilities`, `limit`, `cost`, `time`, `family`).
+- Read plugin options from `ctx.options`, and log through the plugin process
+  instead of `client.app.log`.
 
 ### Added
 
-- Dynamic model discovery from CLIProxyAPI's `/v1/models` endpoint.
-- OpenCode provider configuration for OpenAI-compatible chat completions.
-- Custom server URL and API key support through environment variables or
-  plugin options.
-- Automatic model names and capability hints in OpenCode's model picker.
-- Local plugin and npm package installation flows.
+- Model names, families, context and output limits, token costs, and release
+  dates from live models.dev metadata, rather than protocol metadata alone.
 
-[Unreleased]: https://github.com/yourcasualdev/opencode-cliproxyapi/compare/v0.1.2...HEAD
-[0.1.2]: https://github.com/yourcasualdev/opencode-cliproxyapi/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/yourcasualdev/opencode-cliproxyapi/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/yourcasualdev/opencode-cliproxyapi/releases/tag/v0.1.0
+### Removed
+
+- Manual merging of existing `provider.cliproxyapi` config. V2 layers user
+  configuration over registered provider sources automatically.
+
+[Unreleased]: https://github.com/moutansos/opencode-cliproxyapi/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/moutansos/opencode-cliproxyapi/releases/tag/v0.1.0

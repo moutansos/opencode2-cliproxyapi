@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import {
-  discoverModelProtocols,
+  discoverModelMetadata,
   discoverModels,
   normalizeBaseURL,
   parseCatalog,
-  parseModelProtocolCatalog,
+  parseModelMetadataCatalog,
 } from "./catalog.js"
 
 describe("normalizeBaseURL", () => {
@@ -71,15 +71,32 @@ describe("discoverModels", () => {
   })
 })
 
-describe("parseModelProtocolCatalog", () => {
-  test("indexes provider defaults and model-level SDK overrides", () => {
+describe("parseModelMetadataCatalog", () => {
+  test("indexes provider defaults and model capabilities", () => {
     expect(
-      parseModelProtocolCatalog({
+      parseModelMetadataCatalog({
         acme: {
           npm: "@ai-sdk/openai-compatible",
           models: {
             "chat-model": {},
             "messages-model": {
+              name: "Messages Model",
+              family: "messages",
+              tool_call: true,
+              release_date: "2026-01-15",
+              modalities: {
+                input: ["text", "image"],
+                output: ["text"],
+              },
+              limit: {
+                context: 200000,
+                output: 64000,
+              },
+              cost: {
+                input: 3,
+                output: 15,
+                cache_read: 0.3,
+              },
               provider: {
                 npm: "@ai-sdk/anthropic",
               },
@@ -94,21 +111,42 @@ describe("parseModelProtocolCatalog", () => {
       acme: {
         npm: "@ai-sdk/openai-compatible",
         models: {
-          "messages-model": "@ai-sdk/anthropic",
+          "chat-model": {},
+          "messages-model": {
+            npm: "@ai-sdk/anthropic",
+            name: "Messages Model",
+            family: "messages",
+            toolCall: true,
+            modalities: {
+              input: ["text", "image"],
+              output: ["text"],
+            },
+            limit: {
+              context: 200000,
+              output: 64000,
+            },
+            cost: {
+              input: 3,
+              output: 15,
+              cacheRead: 0.3,
+              cacheWrite: 0,
+            },
+            released: Date.parse("2026-01-15"),
+          },
         },
       },
     })
   })
 
   test("rejects a malformed catalog", () => {
-    expect(() => parseModelProtocolCatalog([])).toThrow("non-object catalog")
+    expect(() => parseModelMetadataCatalog([])).toThrow("non-object catalog")
   })
 })
 
-describe("discoverModelProtocols", () => {
-  test("fetches protocol metadata from the configured URL", async () => {
+describe("discoverModelMetadata", () => {
+  test("fetches model metadata from the configured URL", async () => {
     let requestedURL = ""
-    const catalog = await discoverModelProtocols({
+    const catalog = await discoverModelMetadata({
       url: "https://metadata.test/models.json",
       timeoutMs: 1_000,
       fetcher: async (input) => {
@@ -131,7 +169,9 @@ describe("discoverModelProtocols", () => {
     expect(catalog).toEqual({
       acme: {
         models: {
-          "messages-model": "@ai-sdk/anthropic",
+          "messages-model": {
+            npm: "@ai-sdk/anthropic",
+          },
         },
       },
     })

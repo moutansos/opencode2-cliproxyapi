@@ -1,18 +1,21 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "opencode-cliproxyapi",
-  "version": "0.1.2",
-  "description": "Discover and use every model exposed by CLIProxyAPI in OpenCode.",
+  "name": "opencode2-cliproxyapi",
+  "version": "0.1.0",
+  "description": "Discover and use every model exposed by CLIProxyAPI in OpenCode V2.",
   "type": "module",
   "license": "MIT",
   "author": "İbrahim BABAL",
-  "homepage": "https://github.com/yourcasualdev/opencode-cliproxyapi#readme",
+  "contributors": [
+    "Ben Brougher"
+  ],
+  "homepage": "https://github.com/moutansos/opencode-cliproxyapi#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourcasualdev/opencode-cliproxyapi.git"
+    "url": "git+https://github.com/moutansos/opencode-cliproxyapi.git"
   },
   "bugs": {
-    "url": "https://github.com/yourcasualdev/opencode-cliproxyapi/issues"
+    "url": "https://github.com/moutansos/opencode-cliproxyapi/issues"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -29,7 +32,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun --format esm --external @opencode-ai/plugin && tsc --emitDeclarationOnly",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --format esm --external @opencode/plugin && tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src",
     "check": "bun run typecheck && bun run test && bun run build",
@@ -37,12 +40,16 @@
   },
   "keywords": [
     "opencode",
+    "opencode-v2",
     "cliproxyapi",
     "llm",
     "plugin"
   ],
+  "peerDependencies": {
+    "@opencode/plugin": ">=2.0.0"
+  },
   "devDependencies": {
-    "@opencode-ai/plugin": "1.18.5",
+    "@opencode/plugin": "2.0.4",
     "@types/bun": "^1.3.5",
     "typescript": "^5.9.3"
   },
