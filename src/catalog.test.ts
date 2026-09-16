@@ -84,6 +84,10 @@ describe("parseModelMetadataCatalog", () => {
               family: "messages",
               tool_call: true,
               release_date: "2026-01-15",
+              reasoning_options: [
+                { type: "effort", values: ["low", "high"] },
+                { type: "toggle" },
+              ],
               modalities: {
                 input: ["text", "image"],
                 output: ["text"],
@@ -132,10 +136,25 @@ describe("parseModelMetadataCatalog", () => {
               cacheWrite: 0,
             },
             released: Date.parse("2026-01-15"),
+            reasoningEfforts: ["low", "high"],
           },
         },
       },
     })
+  })
+
+  test("ignores reasoning options that do not describe effort levels", () => {
+    const catalog = parseModelMetadataCatalog({
+      acme: {
+        models: {
+          "budget-model": {
+            reasoning_options: [{ type: "budget_tokens", min: 1024 }, { type: "toggle" }],
+          },
+        },
+      },
+    })
+
+    expect(catalog.acme?.models["budget-model"]?.reasoningEfforts).toBeUndefined()
   })
 
   test("rejects a malformed catalog", () => {

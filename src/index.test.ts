@@ -7,7 +7,10 @@ type Registered = {
   models: readonly Model.Info[]
 }
 
-function context(options: Record<string, unknown>) {
+function context(
+  options: Record<string, unknown>,
+  existing?: { settings?: Record<string, unknown> },
+) {
   const registered: Registered[] = []
 
   return {
@@ -15,6 +18,10 @@ function context(options: Record<string, unknown>) {
     ctx: {
       options,
       provider: {
+        get: async () => {
+          if (!existing) throw new Error("provider not found")
+          return { data: existing }
+        },
         transform: async (callback: (editor: { add: (input: Registered) => void }) => void) => {
           callback({ add: (input) => registered.push(input) })
           return { dispose: async () => {} }
@@ -65,6 +72,40 @@ describe("plugin", () => {
         "gpt-5.6-terra",
         "gemini-3.1-flash-image",
       ])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test("reads connection settings from an existing provider config", async () => {
+    const requests: Request[] = []
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input, init) => {
+      requests.push(new Request(input as RequestInfo, init))
+      return Response.json({ data: [{ id: "chat-model" }] })
+    }
+
+    try {
+      const { ctx, registered } = context(
+        { modelMetadataURL: false },
+        {
+          settings: {
+            baseURL: "http://cliproxy.test:8317/v1",
+            apiKey: "from-config",
+          },
+        },
+      )
+
+      await plugin.setup(ctx)
+
+      const modelRequest = requests.find(
+        (request) => request.url === "http://cliproxy.test:8317/v1/models",
+      )
+      expect(modelRequest?.headers.get("authorization")).toBe("Bearer from-config")
+      expect(registered[0]?.info.settings).toMatchObject({
+        baseURL: "http://cliproxy.test:8317/v1",
+        apiKey: "from-config",
+      })
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -127,6 +168,7 @@ describe("buildModel", () => {
           limit: { context: 200_000, output: 64_000 },
           cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
           released: Date.parse("2026-01-15"),
+          reasoningEfforts: ["low", "high", "max"],
         },
         "model-level-chat": {
           npm: "@ai-sdk/openai-compatible",
@@ -158,6 +200,21 @@ describe("buildModel", () => {
     expect(model.cost).toEqual([
       { input: 3, output: 15, cache: { read: 0.3, write: 3.75 } },
     ] as Model.Info["cost"])
+  })
+
+  test("builds reasoning-effort variants from model metadata", () => {
+    expect(
+      buildModel({ providerID, model: { id: "messages-model", ownedBy: "acme" }, metadata })
+        .variants,
+    ).toEqual([
+      { id: "low", settings: { reasoningEffort: "low" } },
+      { id: "high", settings: { reasoningEffort: "high" } },
+      { id: "max", settings: { reasoningEffort: "max" } },
+    ] as Model.Info["variants"])
+
+    expect(
+      buildModel({ providerID, model: { id: "chat-model", ownedBy: "chat" }, metadata }).variants,
+    ).toEqual([])
   })
 
   test("leaves other models on the provider protocol", () => {

@@ -24,6 +24,7 @@ export type ModelMetadata = {
     cacheWrite: number
   }
   released?: number
+  reasoningEfforts?: string[]
 }
 
 export type ModelMetadataCatalog = Record<
@@ -138,6 +139,7 @@ function parseModelMetadata(model: Record<string, unknown>): ModelMetadata {
   const limit = isRecord(model.limit) ? model.limit : undefined
   const cost = isRecord(model.cost) ? model.cost : undefined
   const released = typeof model.release_date === "string" ? Date.parse(model.release_date) : Number.NaN
+  const reasoningEfforts = parseReasoningEfforts(model.reasoning_options)
 
   return {
     ...(provider && typeof provider.npm === "string" ? { npm: provider.npm } : {}),
@@ -167,6 +169,15 @@ function parseModelMetadata(model: Record<string, unknown>): ModelMetadata {
         }
       : {}),
     ...(Number.isFinite(released) ? { released } : {}),
+    ...(reasoningEfforts ? { reasoningEfforts } : {}),
+  }
+}
+
+function parseReasoningEfforts(input: unknown) {
+  if (!Array.isArray(input)) return
+  for (const option of input) {
+    if (!isRecord(option) || option.type !== "effort") continue
+    if (isStringArray(option.values) && option.values.length > 0) return option.values
   }
 }
 

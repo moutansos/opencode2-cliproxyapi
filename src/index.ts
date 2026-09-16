@@ -38,10 +38,16 @@ export default Plugin.define({
   async setup(ctx) {
     const options = readOptions(ctx.options)
     const providerID = Provider.ID.make(options.providerID ?? DEFAULT_PROVIDER_ID)
+    const existing = await ctx.provider.get({ providerID }).catch(() => undefined)
+    const existingSettings = (existing?.data.settings ?? {}) as Record<string, unknown>
     const baseURL = normalizeBaseURL(
-      options.baseURL ?? process.env.CLIPROXY_BASE_URL ?? DEFAULT_BASE_URL,
+      options.baseURL ??
+        process.env.CLIPROXY_BASE_URL ??
+        stringOption(existingSettings.baseURL) ??
+        DEFAULT_BASE_URL,
     )
-    const apiKey = options.apiKey ?? process.env.CLIPROXY_API_KEY
+    const apiKey =
+      options.apiKey ?? process.env.CLIPROXY_API_KEY ?? stringOption(existingSettings.apiKey)
     const timeoutMs = options.discoveryTimeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS
 
     const [catalog, metadataDiscovery] = await Promise.all([
@@ -111,6 +117,14 @@ export function buildModel(input: {
       input: metadata?.modalities?.input ?? (image || supportsAttachments(input.model.id) ? ["text", "image"] : ["text"]),
       output: metadata?.modalities?.output ?? (image ? ["image"] : ["text"]),
     },
+    ...(metadata?.reasoningEfforts
+      ? {
+          variants: metadata.reasoningEfforts.map((effort) => ({
+            id: Model.VariantID.make(effort),
+            settings: { reasoningEffort: effort },
+          })),
+        }
+      : {}),
     ...(metadata?.limit ? { limit: metadata.limit } : {}),
     ...(metadata?.cost
       ? {

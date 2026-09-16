@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Generate reasoning-effort variants from models.dev `reasoning_options`.
+- Fall back to an existing `providers.cliproxyapi.settings` connection when
+  plugin options and environment variables are omitted.
+
 ## [0.1.0] - 2026-09-16
 
 Initial release of `opencode2-cliproxyapi`, the OpenCode V2 port of
