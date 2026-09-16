@@ -7,6 +7,23 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-16
+
+### Fixed
+
+- Stop with a clear warning on OpenCode releases that do not expose the
+  provider registry. On 2.0.3 the plugin failed with
+  `undefined is not an object (evaluating 'ctx.provider.get')` and registered
+  no models.
+
+### Changed
+
+- Require OpenCode 2.0.4 or newer, which is the release that exposes the
+  provider registry to plugins.
+- Document that the plugin's `console` output does not reach the OpenCode
+  server log, and that `unknown provider for model` comes from CLIProxyAPI
+  advertising a model it cannot route.
+
 ## [0.2.0] - 2026-09-16
 
 First release published to npm as `opencode2-cliproxyapi`. The version starts
@@ -66,6 +83,7 @@ Initial release of `opencode2-cliproxyapi`, the OpenCode V2 port of
 - Manual merging of existing `provider.cliproxyapi` config. V2 layers user
   configuration over registered provider sources automatically.
 
-[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/moutansos/opencode2-cliproxyapi/releases/tag/v0.2.0
 [0.1.0]: https://github.com/moutansos/opencode2-cliproxyapi/releases/tag/v0.1.0

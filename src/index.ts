@@ -38,6 +38,13 @@ type Money = Cost["input"]
 export default Plugin.define({
   id: "opencode2-cliproxyapi",
   async setup(ctx) {
+    if (!ctx.provider) {
+      console.warn(
+        "[cliproxyapi] this OpenCode server does not expose the provider registry; upgrade to OpenCode 2.0.4 or newer",
+      )
+      return
+    }
+
     const options = readOptions(ctx.options)
     const providerID = Provider.ID.make(options.providerID ?? DEFAULT_PROVIDER_ID)
     const existing = await ctx.provider.get({ providerID }).catch(() => undefined)

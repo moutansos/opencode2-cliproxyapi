@@ -1,6 +1,6 @@
 {
   "name": "opencode2-cliproxyapi",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "İbrahim BABAL",
   "repository": {
     "type": "git",
@@ -13,7 +13,7 @@
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "@opencode/plugin": ">=2.0.0"
+    "@opencode/plugin": ">=2.0.4"
   },
   "exports": {
     ".": {

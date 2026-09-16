@@ -26,8 +26,9 @@ variants. Everything else uses OpenAI-compatible `/v1/chat/completions` (or
 
 ## Quick start
 
-You need OpenCode V2 (2.0 or newer), a running CLIProxyAPI server, and one of
-its API keys.
+You need OpenCode 2.0.4 or newer, a running CLIProxyAPI server, and one of its
+API keys. Earlier 2.0 releases do not expose the provider registry the plugin
+registers into, and it stops with a warning instead of adding models.
 
 ### 1. Configure the plugin
 
@@ -55,7 +56,7 @@ Open your global OpenCode config:
 ```
 
 `package` can be pinned to a specific release, such as
-`"opencode2-cliproxyapi@0.2.0"`. Omitting the version tracks the latest
+`"opencode2-cliproxyapi@0.2.1"`. Omitting the version tracks the latest
 release.
 
 The URL may include `/v1`, but it is not required. If `baseURL` is omitted, the
@@ -141,11 +142,34 @@ curl -H "Authorization: Bearer your-cli-proxy-api-key" \
   "http://your-server:8317/v1/models"
 ```
 
-Then check the plugin's own startup messages in the OpenCode server log:
+Then confirm the plugin itself loaded:
 
 ```bash
-grep cliproxyapi ~/.local/share/opencode/log/opencode.log
+opencode plugin list
 ```
+
+If it is missing, look for the reason in the OpenCode server log. The plugin's
+own `console` output does not reach that file, so search for load failures
+instead:
+
+```bash
+grep "failed to load plugin" ~/.local/share/opencode/log/opencode.log
+```
+
+### A model fails with "unknown provider for model"
+
+That error comes from CLIProxyAPI, not from OpenCode. The server advertises the
+model in `/v1/models` but cannot route it, which happens when its upstream
+accounts change. Confirm with a direct request:
+
+```bash
+curl -X POST -H "Authorization: Bearer your-cli-proxy-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"the-model-id","messages":[{"role":"user","content":"hi"}]}' \
+  "http://your-server:8317/v1/chat/completions"
+```
+
+The plugin drops such models once it refreshes its catalog.
 
 ### Environment configuration works in one terminal but not another
 
