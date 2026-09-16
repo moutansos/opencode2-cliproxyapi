@@ -38,5 +38,5 @@ Initial release of `opencode2-cliproxyapi`, the OpenCode V2 port of
 - Manual merging of existing `provider.cliproxyapi` config. V2 layers user
   configuration over registered provider sources automatically.
 
-[Unreleased]: https://github.com/moutansos/opencode-cliproxyapi/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/moutansos/opencode-cliproxyapi/releases/tag/v0.1.0
+[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/moutansos/opencode2-cliproxyapi/releases/tag/v0.1.0

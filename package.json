@@ -9,13 +9,13 @@
   "contributors": [
     "Ben Brougher"
   ],
-  "homepage": "https://github.com/moutansos/opencode-cliproxyapi#readme",
+  "homepage": "https://github.com/moutansos/opencode2-cliproxyapi#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/moutansos/opencode-cliproxyapi.git"
+    "url": "git+https://github.com/moutansos/opencode2-cliproxyapi.git"
   },
   "bugs": {
-    "url": "https://github.com/moutansos/opencode-cliproxyapi/issues"
+    "url": "https://github.com/moutansos/opencode2-cliproxyapi/issues"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

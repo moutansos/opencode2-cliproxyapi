@@ -12,8 +12,8 @@ Requirements:
 Set up the project:
 
 ```bash
-git clone https://github.com/moutansos/opencode-cliproxyapi.git
-cd opencode-cliproxyapi
+git clone https://github.com/moutansos/opencode2-cliproxyapi.git
+cd opencode2-cliproxyapi
 bun install
 bun run check
 ```

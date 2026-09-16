@@ -1,6 +1,6 @@
 # OpenCode 2 CLIProxyAPI
 
-[![CI](https://github.com/moutansos/opencode-cliproxyapi/actions/workflows/ci.yml/badge.svg)](https://github.com/moutansos/opencode-cliproxyapi/actions/workflows/ci.yml)
+[![CI](https://github.com/moutansos/opencode2-cliproxyapi/actions/workflows/ci.yml/badge.svg)](https://github.com/moutansos/opencode2-cliproxyapi/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Use every model exposed by [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
@@ -144,8 +144,8 @@ restart the service with `opencode service restart`.
 ## Development
 
 ```bash
-git clone https://github.com/moutansos/opencode-cliproxyapi.git
-cd opencode-cliproxyapi
+git clone https://github.com/moutansos/opencode2-cliproxyapi.git
+cd opencode2-cliproxyapi
 bun install
 bun run check
 ```

@@ -5,7 +5,7 @@
 Please do not report security vulnerabilities through a public issue.
 
 Use the repository's
-[private vulnerability reporting](https://github.com/moutansos/opencode-cliproxyapi/security/advisories/new)
+[private vulnerability reporting](https://github.com/moutansos/opencode2-cliproxyapi/security/advisories/new)
 page instead.
 
 Include reproduction steps, affected versions, and the expected security
