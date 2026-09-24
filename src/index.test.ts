@@ -131,7 +131,7 @@ describe("plugin", () => {
       await plugin.setup(ctx)
 
       expect(registered[0]?.info.package).toBe(
-        "@opencode/ai/providers/openai-compatible/responses",
+        "@opencode/ai/providers/openai/responses",
       )
     } finally {
       globalThis.fetch = originalFetch
