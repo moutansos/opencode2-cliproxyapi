@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Point the `responses` protocol at `@opencode/ai/providers/openai/responses`.
+  The previous `@opencode/ai/providers/openai-compatible/responses` path is not
+  part of OpenCode's bundled provider modules, so every request failed at model
+  init with `Cannot initialize <provider>/<model>: Cannot find package
+  '@opencode/ai' imported from /$bunfs/root/chunk-*.js`, even though the model
+  was listed in `/models`.
+
 ## [0.2.1] - 2026-09-16
 
 ### Fixed

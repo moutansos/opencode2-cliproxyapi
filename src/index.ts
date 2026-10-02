@@ -16,7 +16,13 @@ const DEFAULT_MODEL_METADATA_URL = "https://models.dev/api.json"
 const DEFAULT_REFRESH_MS = 5 * 60_000
 
 const CHAT_PACKAGE = "@opencode/ai/providers/openai-compatible"
-const RESPONSES_PACKAGE = "@opencode/ai/providers/openai-compatible/responses"
+// OpenCode resolves these package names from inside its own compiled bundle, not
+// from `node_modules`. Only the subpaths the bundle itself contains can be
+// imported, so Responses must use the OpenAI facade; the sibling
+// `openai-compatible-responses` module (and the `openai-compatible/responses`
+// subpath) are not bundled and fail at model init with `Cannot find package
+// '@opencode/ai' imported from /$bunfs/root/chunk-*.js`.
+const RESPONSES_PACKAGE = "@opencode/ai/providers/openai/responses"
 const MESSAGES_PACKAGE = "@opencode/ai/providers/anthropic"
 const ANTHROPIC_NPM = "@ai-sdk/anthropic"
 const DEFAULT_ANTHROPIC_EFFORTS = ["low", "medium", "high"] as const
