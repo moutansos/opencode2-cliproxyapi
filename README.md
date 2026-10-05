@@ -58,7 +58,7 @@ Open your global OpenCode config:
 ```
 
 `package` can be pinned to a specific release, such as
-`"opencode2-cliproxyapi@0.2.2"`. Omitting the version tracks the latest
+`"opencode2-cliproxyapi@0.3.0"`. Omitting the version tracks the latest
 release.
 
 The URL may include `/v1`, but it is not required. If `baseURL` is omitted, the

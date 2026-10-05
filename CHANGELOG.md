@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-04
+
 ### Added
 
 - Read optional live metadata from CLIProxyAPI's `/v1/models` entries:
@@ -104,7 +106,8 @@ Initial release of `opencode2-cliproxyapi`, the OpenCode V2 port of
 - Manual merging of existing `provider.cliproxyapi` config. V2 layers user
   configuration over registered provider sources automatically.
 
-[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/moutansos/opencode2-cliproxyapi/releases/tag/v0.2.0
