@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Model, Plugin as PluginTypes, Provider } from "@opencode/plugin"
-import plugin, { buildModel } from "./index.js"
+import plugin, { buildModel, resolveLimit } from "./index.js"
 
 type Registered = {
   info: Provider.Info
@@ -12,6 +12,7 @@ function context(
   existing?: { settings?: Record<string, unknown> },
 ) {
   const registered: Registered[] = []
+  const transforms: Array<(editor: { add: (input: Registered) => void }) => void> = []
 
   return {
     registered,
@@ -23,8 +24,12 @@ function context(
           return { data: existing }
         },
         transform: async (callback: (editor: { add: (input: Registered) => void }) => void) => {
+          transforms.push(callback)
           callback({ add: (input) => registered.push(input) })
           return { dispose: async () => {} }
+        },
+        reload: async () => {
+          for (const callback of transforms) callback({ add: (input) => registered.push(input) })
         },
       },
       aisdk: {
@@ -282,5 +287,192 @@ describe("buildModel", () => {
 
     const text = buildModel({ providerID, model: { id: "qwen3-coder" }, metadata: {} })
     expect(text.capabilities).toEqual({ tools: true, input: ["text"], output: ["text"] })
+  })
+})
+
+describe("live CLIProxyAPI metadata", () => {
+  const providerID = "cliproxyapi" as Provider.ID
+  const catalog = {
+    acme: {
+      models: {
+        "deployment-coder": {
+          name: "Catalog Coder",
+          family: "coder",
+          toolCall: true,
+          modalities: { input: ["text", "image"], output: ["text"] },
+          limit: { context: 131_072, input: 120_000, output: 32_768 },
+          cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+        },
+      },
+    },
+  }
+
+  test("live context and output override the catalog", () => {
+    const model = buildModel({
+      providerID,
+      model: {
+        id: "deployment-coder",
+        ownedBy: "acme",
+        live: { name: "Deployment Coder", limit: { context: 8_192, output: 2_048 } },
+      },
+      metadata: catalog,
+    })
+    expect(model.limit).toEqual({ context: 8_192, input: 6_144, output: 2_048 })
+    expect(model.name).toBe("Deployment Coder")
+    expect(model.family).toBe("coder")
+    expect(model.capabilities).toEqual({ tools: true, input: ["text", "image"], output: ["text"] })
+    expect(model.cost).toEqual([{ input: 1, output: 2, cache: { read: 0, write: 0 } }] as Model.Info["cost"])
+  })
+
+  test("context-only live metadata caps the inherited output budget", () => {
+    const model = buildModel({
+      providerID,
+      model: { id: "deployment-coder", ownedBy: "acme", live: { limit: { context: 8_192 } } },
+      metadata: catalog,
+    })
+    expect(model.limit).toEqual({ context: 8_192, input: 6_144, output: 2_048 })
+    expect(model.name).toBe("Catalog Coder")
+  })
+
+  test("output-only live metadata keeps the catalog context", () => {
+    const model = buildModel({
+      providerID,
+      model: { id: "deployment-coder", ownedBy: "acme", live: { limit: { output: 4_096 } } },
+      metadata: catalog,
+    })
+    expect(model.limit).toEqual({ context: 131_072, input: 120_000, output: 4_096 })
+  })
+
+  test("live limits work without a catalog match", () => {
+    const model = buildModel({
+      providerID,
+      model: { id: "local/qwen3:8b", ownedBy: "ollama", live: { limit: { context: 32_768 } } },
+      metadata: {},
+    })
+    expect(model.limit).toEqual({ context: 32_768, output: 8_192 })
+
+    const large = buildModel({
+      providerID,
+      model: { id: "local/large", live: { limit: { context: 196_608 } } },
+      metadata: {},
+    })
+    expect(large.limit).toEqual({ context: 196_608, output: 32_000 })
+  })
+
+  test("basic records keep the existing catalog and default behavior", () => {
+    expect(
+      buildModel({ providerID, model: { id: "deployment-coder", ownedBy: "acme" }, metadata: catalog }).limit,
+    ).toEqual({ context: 131_072, input: 120_000, output: 32_768 })
+    const plain = buildModel({ providerID, model: { id: "unknown-model" }, metadata: {} })
+    expect(plain.limit).toEqual(
+      buildModel({ providerID, model: { id: "other-unknown" }, metadata: {} }).limit,
+    )
+  })
+
+  test("live limits keep explicit falsy catalog metadata", () => {
+    const model = buildModel({
+      providerID,
+      model: { id: "no-tools", ownedBy: "acme", live: { limit: { context: 8_192 } } },
+      metadata: {
+        acme: {
+          models: {
+            "no-tools": {
+              toolCall: false,
+              limit: { context: 65_536, output: 1_024 },
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            },
+          },
+        },
+      },
+    })
+    expect(model.capabilities.tools).toBe(false)
+    expect(model.limit).toEqual({ context: 8_192, output: 1_024 })
+    expect(model.cost).toEqual([{ input: 0, output: 0, cache: { read: 0, write: 0 } }] as Model.Info["cost"])
+  })
+
+  test("resolveLimit never lets output exceed the effective context", () => {
+    const fallback = { context: 200_000, output: 32_000 }
+    expect(resolveLimit({ live: { context: 4_096, output: 8_192 }, fallback })).toEqual({
+      context: 4_096,
+      output: 4_096,
+    })
+    expect(resolveLimit({ live: { context: 2 }, fallback })).toEqual({ context: 2, output: 1 })
+    expect(resolveLimit({ live: {}, catalog: { context: 10, output: 5 }, fallback })).toEqual({
+      context: 10,
+      output: 5,
+    })
+    expect(resolveLimit({ fallback })).toBeUndefined()
+  })
+})
+
+describe("plugin live metadata", () => {
+  const enriched = (context: number | undefined) => ({
+    object: "list",
+    data: [
+      {
+        id: "local/qwen3:8b",
+        object: "model",
+        owned_by: "ollama",
+        display_name: "qwen3:8b (Ollama)",
+        ...(context !== undefined ? { context_length: context } : {}),
+      },
+    ],
+  })
+
+  test("uses live limits when enrichment is disabled or fails", async () => {
+    const originalFetch = globalThis.fetch
+    try {
+      for (const modelMetadataURL of [false, "https://catalog.test/api.json"] as const) {
+        globalThis.fetch = async (input) => {
+          if (String(input) === "https://catalog.test/api.json") {
+            return Response.json({ error: "unavailable" }, { status: 503 })
+          }
+          return Response.json(enriched(16_384))
+        }
+        const { ctx, registered } = context({ baseURL: "http://cliproxy.test:8317", modelMetadataURL })
+        await plugin.setup(ctx)
+        const model = registered.at(-1)?.models[0]
+        expect(model?.limit).toEqual({ context: 16_384, output: 4_096 })
+        expect(model?.name).toBe("qwen3:8b (Ollama)")
+      }
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test("refresh applies changed and removed live metadata for an unchanged model ID", async () => {
+    const originalFetch = globalThis.fetch
+    const responses = [enriched(8_192), enriched(32_768), enriched(undefined)]
+    let calls = 0
+    globalThis.fetch = async () => Response.json(responses[Math.min(calls++, responses.length - 1)])
+
+    let cleanup: void | (() => void | Promise<void>)
+    try {
+      const { ctx, registered } = context({
+        baseURL: "http://cliproxy.test:8317",
+        modelMetadataURL: false,
+        refreshIntervalMs: 10,
+      })
+      cleanup = await plugin.setup(ctx)
+      expect(registered.at(-1)?.models[0]?.limit).toEqual({ context: 8_192, output: 2_048 })
+
+      const waitFor = async (predicate: () => boolean) => {
+        for (let i = 0; i < 200 && !predicate(); i++) await Bun.sleep(5)
+      }
+      await waitFor(() => registered.at(-1)?.models[0]?.limit.context === 32_768)
+      expect(registered.at(-1)?.models[0]?.limit).toEqual({ context: 32_768, output: 8_192 })
+
+      await waitFor(() => registered.at(-1)?.models[0]?.limit.context !== 32_768)
+      const defaults = buildModel({
+        providerID: "cliproxyapi" as Provider.ID,
+        model: { id: "local/qwen3:8b" },
+        metadata: {},
+      }).limit
+      expect(registered.at(-1)?.models[0]?.limit).toEqual(defaults)
+      expect(registered.at(-1)?.models.map((model) => model.id)).toEqual(["local/qwen3:8b"])
+    } finally {
+      if (typeof cleanup === "function") await cleanup()
+      globalThis.fetch = originalFetch
+    }
   })
 })

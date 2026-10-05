@@ -17,7 +17,9 @@ The plugin discovers CLIProxyAPI's live `/v1/models` catalog whenever it loads
 `ctx.provider.transform`. Available models appear in the normal `/models`
 picker under **CLIProxyAPI**. Model names, capabilities, limits, costs, and
 reasoning variants are enriched from live metadata on
-[models.dev](https://models.dev/). No model IDs are hard-coded.
+[models.dev](https://models.dev/). Deployment limits that the CLIProxyAPI server
+itself reports take precedence (see
+[Live model metadata](#live-model-metadata)). No model IDs are hard-coded.
 
 Claude models owned by Anthropic use OpenCode's Anthropic Messages runtime
 against CLIProxyAPI's `/v1/messages` endpoint, including thinking/effort
@@ -106,6 +108,61 @@ export CLIPROXY_API_KEY="your-cli-proxy-api-key"
 
 Put these lines in your shell profile if you want them to persist. Explicit
 plugin options in `opencode.json` take precedence over environment variables.
+
+### Live model metadata
+
+A server can describe what a deployment actually provides by adding these
+optional fields to `/v1/models` entries. The plugin reads only these fields; it
+ignores unknown fields, and it ignores a malformed value without dropping the
+model.
+
+| `/v1/models` field | OpenCode field | Accepted values |
+| --- | --- | --- |
+| `context_length` | `limit.context` | Positive integer |
+| `max_completion_tokens` | `limit.output` | Positive integer |
+| `display_name` | `name` | Non-empty string |
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "deployment-coder",
+      "object": "model",
+      "owned_by": "local-provider",
+      "display_name": "Deployment Coder",
+      "context_length": 8192,
+      "max_completion_tokens": 2048
+    }
+  ]
+}
+```
+
+Stock CLIProxyAPI returns only `id`, `object`, `created`, and `owned_by`. The
+extra fields require server-side enrichment, such as a CLIProxyAPI plugin that
+rewrites the model list. Without them, behavior is unchanged.
+
+Each field is merged independently, from highest to lowest priority:
+
+1. Your configuration under `providers.<providerID>.models`, which OpenCode
+   layers on top of the plugin.
+2. Live metadata from CLIProxyAPI.
+3. The `modelMetadataURL` catalog (models.dev by default).
+4. OpenCode defaults (`context` 200000, `output` 32000).
+
+A live context wins even when it is smaller than the catalog value. Live
+metadata applies even if the model is not in the catalog, if enrichment is
+disabled (`modelMetadataURL: false`), or if the catalog cannot be fetched. Each
+background refresh rebuilds the models from the latest response, so changed
+values apply and removed fields fall back to the next source.
+
+To keep budgets coherent when a live limit is present, the plugin also:
+
+- never lets the output limit exceed the context;
+- caps an inherited output budget at a quarter of a live `context_length` when
+  the server sends no `max_completion_tokens`. For example, a live context of
+  8192 with a catalog output of 32768 resolves to output 2048;
+- caps an inherited input limit to context minus output.
 
 ### Customizing discovered models
 
