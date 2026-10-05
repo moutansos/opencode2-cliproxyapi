@@ -1,6 +1,27 @@
 export type CatalogModel = {
   id: string
   ownedBy?: string
+  live?: LiveMetadata
+}
+
+/**
+ * Optional deployment metadata a CLIProxyAPI server may add to `/v1/models`
+ * entries. Stock CLIProxyAPI only returns `id`, `object`, `created`, and
+ * `owned_by`; these fields require server-side enrichment (for example a
+ * CLIProxyAPI plugin). Only the recognized fields below are read:
+ *
+ * | Wire field              | Meaning                          |
+ * | ----------------------- | -------------------------------- |
+ * | `display_name`          | Human-readable model name        |
+ * | `context_length`        | Deployment context window        |
+ * | `max_completion_tokens` | Deployment output-token limit    |
+ */
+export type LiveMetadata = {
+  name?: string
+  limit?: {
+    context?: number
+    output?: number
+  }
 }
 
 export type ModelMetadata = {
@@ -55,9 +76,11 @@ export function parseCatalog(input: unknown): CatalogModel[] {
   const models = response.data
     .map((item) => {
       if (!isRecord(item) || typeof item.id !== "string" || item.id.trim() === "") return
+      const live = parseLiveMetadata(item)
       return {
         id: item.id,
         ...(typeof item.owned_by === "string" ? { ownedBy: item.owned_by } : {}),
+        ...(live ? { live } : {}),
       }
     })
     .filter((item): item is CatalogModel => item !== undefined)
@@ -179,6 +202,29 @@ function parseReasoningEfforts(input: unknown) {
     if (!isRecord(option) || option.type !== "effort") continue
     if (isStringArray(option.values) && option.values.length > 0) return option.values
   }
+}
+
+export function parseLiveMetadata(item: Record<string, unknown>): LiveMetadata | undefined {
+  const name =
+    typeof item.display_name === "string" && item.display_name.trim() !== ""
+      ? item.display_name.trim()
+      : undefined
+  const context = tokenLimit(item.context_length)
+  const output = tokenLimit(item.max_completion_tokens)
+  const limit = {
+    ...(context !== undefined ? { context } : {}),
+    ...(output !== undefined ? { output } : {}),
+  }
+  if (name === undefined && Object.keys(limit).length === 0) return
+  return {
+    ...(name !== undefined ? { name } : {}),
+    ...(Object.keys(limit).length > 0 ? { limit } : {}),
+  }
+}
+
+/** Token limits must be finite positive integers; anything else is ignored. */
+function tokenLimit(value: unknown) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined
 }
 
 function isStringArray(value: unknown): value is string[] {

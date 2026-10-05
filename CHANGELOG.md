@@ -7,6 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Read optional live metadata from CLIProxyAPI's `/v1/models` entries:
+  `context_length`, `max_completion_tokens`, and `display_name`. These take
+  precedence over models.dev per field, while user configuration still wins.
+  Live limits apply without a catalog match, with enrichment disabled, or when
+  enrichment fails. When only a live context is known, an inherited output
+  budget is capped to a quarter of it so the output never exceeds the context.
+  ([#3](https://github.com/moutansos/opencode2-cliproxyapi/issues/3))
+
 ## [0.2.2] - 2026-10-02
 
 ### Fixed

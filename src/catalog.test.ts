@@ -4,6 +4,7 @@ import {
   discoverModels,
   normalizeBaseURL,
   parseCatalog,
+  parseLiveMetadata,
   parseModelMetadataCatalog,
 } from "./catalog.js"
 
@@ -35,6 +36,51 @@ describe("parseCatalog", () => {
       { id: "gpt-5.6-terra", ownedBy: "openai" },
       { id: "claude-sonnet-4-6" },
     ])
+  })
+
+  test("keeps recognized live metadata from enriched entries", () => {
+    expect(
+      parseCatalog({
+        object: "list",
+        data: [
+          {
+            id: "deployment-coder",
+            object: "model",
+            owned_by: "local-provider",
+            display_name: "Deployment Coder",
+            context_length: 8192,
+            max_completion_tokens: 2048,
+            unknown_field: { nested: true },
+          },
+          { id: "context-only", context_length: 4096 },
+          { id: "basic", owned_by: "openai" },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: "deployment-coder",
+        ownedBy: "local-provider",
+        live: { name: "Deployment Coder", limit: { context: 8192, output: 2048 } },
+      },
+      { id: "context-only", live: { limit: { context: 4096 } } },
+      { id: "basic", ownedBy: "openai" },
+    ])
+  })
+
+  test("ignores malformed live metadata without dropping the model", () => {
+    const models = parseCatalog({
+      data: [
+        {
+          id: "bad-limits",
+          display_name: "   ",
+          context_length: -1,
+          max_completion_tokens: 1.5,
+        },
+        { id: "string-limits", context_length: "8192", max_completion_tokens: null },
+        { id: "huge", context_length: Number.POSITIVE_INFINITY, max_completion_tokens: 0 },
+      ],
+    })
+    expect(models).toEqual([{ id: "bad-limits" }, { id: "string-limits" }, { id: "huge" }])
   })
 
   test("rejects malformed responses", () => {
@@ -194,5 +240,16 @@ describe("discoverModelMetadata", () => {
         },
       },
     })
+  })
+})
+
+describe("parseLiveMetadata", () => {
+  test("returns nothing for basic OpenAI records", () => {
+    expect(parseLiveMetadata({ id: "gpt-5", object: "model", owned_by: "openai" })).toBeUndefined()
+  })
+
+  test("keeps output-only and name-only metadata", () => {
+    expect(parseLiveMetadata({ max_completion_tokens: 1024 })).toEqual({ limit: { output: 1024 } })
+    expect(parseLiveMetadata({ display_name: " Local Model " })).toEqual({ name: "Local Model" })
   })
 })

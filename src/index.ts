@@ -4,6 +4,7 @@ import {
   discoverModels,
   normalizeBaseURL,
   type CatalogModel,
+  type LiveMetadata,
   type ModelMetadata,
   type ModelMetadataCatalog,
 } from "./catalog.js"
@@ -38,7 +39,13 @@ type ConnectorOptions = {
   refreshIntervalMs?: number
 }
 
+// When a server supplies a context window but no output limit, an inherited
+// (catalog or default) output budget is capped to this fraction of the context so
+// the remaining prompt budget stays usable.
+const INHERITED_OUTPUT_CONTEXT_DIVISOR = 4
+
 type Cost = Model.Info["cost"][number]
+type Limit = Model.Info["limit"]
 type Money = Cost["input"]
 
 export default Plugin.define({
@@ -152,10 +159,16 @@ export function buildModel(input: {
   const image = isImageModel(input.model.id)
   const anthropic = usesAnthropicMessages(input.model, resolved.npm)
   const efforts = metadata?.reasoningEfforts ?? (anthropic ? [...DEFAULT_ANTHROPIC_EFFORTS] : undefined)
+  const defaults = Model.Info.default(input.providerID, modelID)
+  const limit = resolveLimit({
+    live: input.model.live?.limit,
+    catalog: metadata?.limit,
+    fallback: defaults.limit,
+  })
 
   return {
-    ...Model.Info.default(input.providerID, modelID),
-    name: metadata?.name ?? displayName(input.model.id),
+    ...defaults,
+    name: input.model.live?.name ?? metadata?.name ?? displayName(input.model.id),
     ...(metadata?.family ? { family: Model.Family.make(metadata.family) } : {}),
     ...(anthropic ? { package: MESSAGES_PACKAGE } : {}),
     capabilities: {
@@ -173,7 +186,7 @@ export function buildModel(input: {
           })),
         }
       : {}),
-    ...(metadata?.limit ? { limit: metadata.limit } : {}),
+    ...(limit ? { limit } : {}),
     ...(metadata?.cost
       ? {
           cost: [
@@ -189,6 +202,46 @@ export function buildModel(input: {
         }
       : {}),
     ...(metadata?.released ? { time: { released: metadata.released } } : {}),
+  }
+}
+
+/**
+ * Merges token limits per field. Live CLIProxyAPI metadata wins over the
+ * models.dev-compatible catalog, which wins over OpenCode's defaults. Explicit
+ * user configuration is layered on top by OpenCode itself.
+ *
+ * Coherence policy when a live value is present:
+ * - a live output limit is kept, but never exceeds the effective context;
+ * - with a live context and no live output, an inherited output budget is capped
+ *   to a quarter of the live context (so a small deployment window is not
+ *   consumed by a catalog-sized output reservation);
+ * - an inherited input limit is capped to context minus output.
+ * Without live limits the catalog limit is used unchanged.
+ */
+export function resolveLimit(input: {
+  live?: LiveMetadata["limit"]
+  catalog?: ModelMetadata["limit"]
+  fallback: Limit
+}): Limit | undefined {
+  const { live, catalog, fallback } = input
+  if (!live || (live.context === undefined && live.output === undefined)) return catalog
+
+  const context = live.context ?? catalog?.context ?? fallback.context
+  const inheritedOutput = catalog?.output ?? fallback.output
+  let output: number
+  if (live.output !== undefined) {
+    output = Math.min(live.output, context)
+  } else {
+    output = Math.min(inheritedOutput, Math.max(1, Math.floor(context / INHERITED_OUTPUT_CONTEXT_DIVISOR)))
+  }
+  const inheritedInput = catalog?.input
+  const inputLimit =
+    inheritedInput === undefined ? undefined : Math.max(1, Math.min(inheritedInput, context - output))
+
+  return {
+    context,
+    ...(inputLimit !== undefined ? { input: inputLimit } : {}),
+    output,
   }
 }
 
