@@ -7,6 +7,18 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Register the provider before any network request and load both the
+  CLIProxyAPI catalog and optional models.dev metadata in the background.
+  OpenCode can activate this plugin in a separate process for every location,
+  so waiting for either request could exceed the activation budget and leave
+  the plugin failed. A disk cache, shared by server URL, supplies the last
+  catalogs immediately. A file lock ensures only one process downloads the
+  metadata catalog; the others wait for that download. A failed request does
+  not extend the cache lifetime, and disposing the plugin stops further
+  provider reloads.
+
 ## [0.3.0] - 2026-10-04
 
 ### Added

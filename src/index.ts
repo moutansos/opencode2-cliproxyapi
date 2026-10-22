@@ -1,5 +1,14 @@
 import { Model, Plugin, Provider } from "@opencode/plugin"
 import {
+  acquireMetadataLock,
+  catalogCacheIsFresh,
+  metadataCacheIsFresh,
+  readCatalogCache,
+  readMetadataCache,
+  writeCatalogCache,
+  writeMetadataCache,
+} from "./cache.js"
+import {
   discoverModelMetadata,
   discoverModels,
   normalizeBaseURL,
@@ -15,6 +24,14 @@ const DEFAULT_PROVIDER_NAME = "CLIProxyAPI"
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000
 const DEFAULT_MODEL_METADATA_URL = "https://models.dev/api.json"
 const DEFAULT_REFRESH_MS = 5 * 60_000
+const METADATA_LOCK_POLL_MS = 50
+
+// Lets tests drive a refresh without waiting on the interval timer, and wait
+// until the background refresh has released the network.
+export const pluginTesting = {
+  refresh: undefined as undefined | (() => Promise<void>),
+  settled: Promise.resolve() as Promise<void>,
+}
 
 const CHAT_PACKAGE = "@opencode/ai/providers/openai-compatible"
 // OpenCode resolves these package names from inside its own compiled bundle, not
@@ -72,6 +89,10 @@ export default Plugin.define({
       options.apiKey ?? process.env.CLIPROXY_API_KEY ?? stringOption(existingSettings.apiKey)
     const timeoutMs = options.discoveryTimeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS
     const refreshMs = options.refreshIntervalMs ?? DEFAULT_REFRESH_MS
+    const metadataURL = options.modelMetadataURL ?? DEFAULT_MODEL_METADATA_URL
+    // The catalog is not secret and does not vary by credential. Keying only on
+    // the server lets every location share one cache entry.
+    const catalogCacheKey = baseURL
 
     const source = {
       info: {
@@ -87,34 +108,82 @@ export default Plugin.define({
       models: [] as Model.Info[],
     }
 
-    const refresh = async (initial: boolean) => {
-      const [catalog, metadataDiscovery] = await Promise.all([
-        discoverModels({ baseURL, apiKey, timeoutMs }),
-        discoverMetadata({
-          url: options.modelMetadataURL ?? DEFAULT_MODEL_METADATA_URL,
-          timeoutMs,
-        }),
-      ])
+    let catalog: CatalogModel[] = []
+    let metadata: ModelMetadataCatalog = {}
+    let registered = false
+    let closed = false
+    let refreshPromise: Promise<void> | undefined
 
-      if (metadataDiscovery.error) console.warn(`[cliproxyapi] ${metadataDiscovery.error}`)
-
-      source.models = catalog.map((model) =>
-        buildModel({
-          providerID,
-          model,
-          metadata: metadataDiscovery.catalog,
-        }),
-      )
-
-      if (!initial) await ctx.provider.reload()
-      console.log(`[cliproxyapi] discovered ${source.models.length} models from ${baseURL}`)
+    const rebuild = async (reload: boolean) => {
+      if (closed) return
+      source.models = catalog.map((model) => buildModel({ providerID, model, metadata }))
+      if (reload && registered && !closed) await ctx.provider.reload()
     }
 
-    await refresh(true)
+    const refreshCatalog = async (reload: boolean, fresh = false) => {
+      let discovered: CatalogModel[]
+      try {
+        discovered = await loadCatalog({ baseURL, apiKey, timeoutMs, fresh })
+      } catch (error) {
+        if (closed) return
+        // Keep the previous entry unchanged, including its fetchedAt. Rewriting
+        // it would make a failed server look freshly discovered.
+        const recovered = await readCatalogCache(catalogCacheKey).catch(() => undefined)
+        if (!recovered?.models.length) throw error
+        catalog = recovered.models
+        await rebuild(reload)
+        const message = error instanceof Error ? error.message : String(error)
+        console.warn(`[cliproxyapi] catalog refresh failed, using cached models: ${message}`)
+        return
+      }
 
+      catalog = discovered
+      await writeCatalogCache(catalogCacheKey, catalog).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error)
+        console.warn(`[cliproxyapi] could not update the catalog cache: ${message}`)
+      })
+      if (closed) return
+      await rebuild(reload)
+      console.log(`[cliproxyapi] discovered ${catalog.length} models from ${baseURL}`)
+    }
+
+    const refreshMetadata = async () => {
+      if (metadataURL === false || closed || catalog.length === 0) return
+      const result = await loadModelMetadata({
+        url: metadataURL,
+        timeoutMs,
+        isClosed: () => closed,
+      })
+      if (closed || catalog.length === 0) return
+      // A failed download must not wipe metadata already in use. An empty
+      // successful catalog is authoritative and clears stale enrichment.
+      if (result.stale) {
+        if (Object.keys(metadata).length > 0 || Object.keys(result.catalog).length === 0) return
+      }
+      metadata = result.catalog
+      await rebuild(true)
+    }
+
+    // A previous process may already have the catalogs. Use them immediately so
+    // models are available even when this process loses the download race, then
+    // refresh in the background.
+    const [cachedCatalog, cachedMetadata] = await Promise.all([
+      readCatalogCache(catalogCacheKey).catch(() => undefined),
+      metadataURL === false
+        ? Promise.resolve(undefined)
+        : readMetadataCache(metadataURL).catch(() => undefined),
+    ])
+    if (cachedCatalog?.models.length) catalog = cachedCatalog.models
+    if (cachedMetadata) metadata = cachedMetadata.catalog
+    if (catalog.length > 0) await rebuild(false)
+
+    // Register the provider immediately so activation never depends on a
+    // network request. The model list is filled in by the background refresh
+    // below, and the provider is reloaded once it is available.
     await ctx.provider.transform((editor) => {
       editor.add({ info: source.info, models: source.models })
     })
+    registered = true
 
     await ctx.session.hook(
       "model.request",
@@ -125,17 +194,48 @@ export default Plugin.define({
       { providerID },
     )
 
-    if (refreshMs <= 0) return
+    const refresh = () => {
+      if (closed) return Promise.resolve()
+      if (refreshPromise) return refreshPromise
 
-    const timer = setInterval(() => {
-      void refresh(false).catch((error) => {
+      refreshPromise = (async () => {
+        try {
+          // Fetch the CLIProxyAPI catalog first. Metadata is large and must not
+          // compete with model discovery when several locations load at once.
+          await refreshCatalog(true, true)
+          if (closed) return
+          await refreshMetadata()
+        } finally {
+          refreshPromise = undefined
+        }
+      })()
+      pluginTesting.settled = refreshPromise.catch((error) => {
         console.warn(
           `[cliproxyapi] catalog refresh failed: ${error instanceof Error ? error.message : String(error)}`,
         )
       })
+
+      return refreshPromise
+    }
+    pluginTesting.refresh = refresh
+
+    void refresh()
+
+    const cleanup = () => {
+      closed = true
+      if (pluginTesting.refresh === refresh) pluginTesting.refresh = undefined
+    }
+
+    if (refreshMs <= 0) return cleanup
+
+    const timer = setInterval(() => {
+      void refresh()
     }, refreshMs)
     timer.unref?.()
-    return () => clearInterval(timer)
+    return () => {
+      cleanup()
+      clearInterval(timer)
+    }
   },
 })
 
@@ -272,21 +372,139 @@ function resolveMetadata(
   return { npm: owner?.npm }
 }
 
-function discoverMetadata(input: {
+// OpenCode may activate the same plugin once per location, sometimes in a
+// separate process. Share in-flight requests within this process, and use the
+// disk cache and metadata lock to coordinate across processes.
+const catalogRequests = new Map<string, Promise<CatalogModel[]>>()
+
+function loadCatalog(input: {
+  baseURL: string
+  apiKey?: string
+  timeoutMs: number
+  fresh?: boolean
+}) {
+  // Share a download within one process only when it uses the same credential.
+  // The disk cache is keyed by server alone; see catalogCacheKey.
+  const requestKey = `${input.baseURL}\0${input.apiKey ?? ""}`
+  const existing = catalogRequests.get(requestKey)
+  if (existing) return existing
+
+  const pending = (async () => {
+    if (!input.fresh) {
+      const cached = await readCatalogCache(input.baseURL).catch(() => undefined)
+      if (cached && catalogCacheIsFresh(cached.fetchedAt) && cached.models.length > 0) {
+        return cached.models
+      }
+    }
+    return discoverModels(input)
+  })().finally(() => {
+    catalogRequests.delete(requestKey)
+  })
+
+  catalogRequests.set(requestKey, pending)
+  return pending
+}
+
+type ModelMetadataDiscovery = {
+  catalog: ModelMetadataCatalog
+  /** True when this is a fallback, not a completed fetch. */
+  stale?: boolean
+  error?: string
+}
+
+const metadataRequests = new Map<string, Promise<ModelMetadataDiscovery>>()
+
+function loadModelMetadata(input: {
   url: string | false
   timeoutMs: number
-}): Promise<{ catalog: ModelMetadataCatalog; error?: string }> {
+  isClosed?: () => boolean
+}): Promise<ModelMetadataDiscovery> {
   if (input.url === false) return Promise.resolve({ catalog: {} })
 
-  return discoverModelMetadata({
-    url: input.url,
-    timeoutMs: input.timeoutMs,
-  })
-    .then((catalog) => ({ catalog }))
-    .catch((error) => ({
-      catalog: {},
-      error: error instanceof Error ? error.message : String(error),
-    }))
+  const url = input.url
+  const existing = metadataRequests.get(url)
+  if (existing) return existing
+
+  const pending = discoverSharedMetadata(url, input.timeoutMs, input.isClosed ?? (() => false)).finally(
+    () => {
+      metadataRequests.delete(url)
+    },
+  )
+
+  metadataRequests.set(url, pending)
+  return pending
+}
+
+async function discoverSharedMetadata(
+  url: string,
+  timeoutMs: number,
+  isClosed: () => boolean,
+): Promise<ModelMetadataDiscovery> {
+  const cached = await readMetadataCache(url).catch(() => undefined)
+  if (cached && metadataCacheIsFresh(cached.fetchedAt)) return { catalog: cached.catalog }
+
+  let release: (() => Promise<void>) | undefined
+  try {
+    release = await acquireMetadataLock(url)
+  } catch (error) {
+    // A cache directory that cannot be created should not disable enrichment.
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[cliproxyapi] metadata lock unavailable, downloading anyway: ${message}`)
+    return fetchMetadata(url, timeoutMs, cached?.catalog)
+  }
+
+  if (!release) {
+    // Another process is already downloading. Wait for its cache instead of
+    // starting a second download or skipping enrichment until the next refresh.
+    const waited = await waitForSharedMetadata(url, timeoutMs, isClosed)
+    if (waited && metadataCacheIsFresh(waited.fetchedAt)) return { catalog: waited.catalog }
+    return { catalog: waited?.catalog ?? cached?.catalog ?? {}, stale: true }
+  }
+
+  try {
+    return await fetchMetadata(url, timeoutMs, cached?.catalog)
+  } finally {
+    await release()
+  }
+}
+
+async function fetchMetadata(
+  url: string,
+  timeoutMs: number,
+  fallback: ModelMetadataCatalog | undefined,
+): Promise<ModelMetadataDiscovery> {
+  try {
+    const catalog = await discoverModelMetadata({ url, timeoutMs })
+    // A completed response is authoritative, including an empty catalog.
+    await writeMetadataCache(url, catalog).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[cliproxyapi] could not update the metadata cache: ${message}`)
+    })
+    return { catalog }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[cliproxyapi] ${message}`)
+    return { catalog: fallback ?? {}, stale: true, error: message }
+  }
+}
+
+async function waitForSharedMetadata(
+  url: string,
+  timeoutMs: number,
+  isClosed: () => boolean,
+) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (isClosed()) return
+    const cached = await readMetadataCache(url).catch(() => undefined)
+    if (cached && metadataCacheIsFresh(cached.fetchedAt)) return cached
+    await sleep(METADATA_LOCK_POLL_MS)
+  }
+  return readMetadataCache(url).catch(() => undefined)
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function readOptions(input: Record<string, unknown>): ConnectorOptions {

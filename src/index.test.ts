@@ -1,10 +1,53 @@
+import { mkdtempSync } from "node:fs"
+import { mkdir } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+let metadataURLCounter = 0
+
+function uniqueMetadataURL() {
+  metadataURLCounter += 1
+  return `https://models.test/${metadataURLCounter}/api.json`
+}
+
+function uniqueBaseURL() {
+  metadataURLCounter += 1
+  return `http://cliproxy.test:${8300 + metadataURLCounter}`
+}
+
+async function useCacheDir() {
+  const directory = mkdtempSync(join(tmpdir(), "cliproxyapi-test-"))
+  process.env.CLIPROXYAPI_CACHE_DIR = directory
+  return directory
+}
+
+async function restoreFetch(original: typeof globalThis.fetch) {
+  await pluginTesting.settled
+  globalThis.fetch = original
+}
+
 import { describe, expect, test } from "bun:test"
 import type { Model, Plugin as PluginTypes, Provider } from "@opencode/plugin"
-import plugin, { buildModel, resolveLimit } from "./index.js"
+import {
+  acquireMetadataLock,
+  cacheInternals,
+  readCatalogCache,
+  writeCatalogCache,
+  writeMetadataCache,
+} from "./cache.js"
+import plugin, { buildModel, pluginTesting, resolveLimit } from "./index.js"
 
 type Registered = {
   info: Provider.Info
   models: readonly Model.Info[]
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("timed out waiting for condition")
+    await Bun.sleep(5)
+  }
 }
 
 function context(
@@ -44,32 +87,48 @@ function context(
 
 describe("plugin", () => {
   test("registers a provider from the discovered CLIProxyAPI catalog", async () => {
+    await useCacheDir()
     const requests: Request[] = []
     const originalFetch = globalThis.fetch
     globalThis.fetch = async (input, init) => {
-      requests.push(new Request(input as RequestInfo, init))
+      const request = new Request(input as RequestInfo, init)
+      requests.push(request)
+      if (request.url.endsWith("/api.json") && request.url !== "http://cliproxy.test:8317/v1/models") {
+        return Response.json({
+          acme: {
+            models: {
+              "gpt-5.6-terra": {
+                name: "GPT 5.6 Terra",
+                limit: { context: 400_000, output: 128_000 },
+              },
+            },
+          },
+        })
+      }
       return Response.json({
         data: [{ id: "gpt-5.6-terra" }, { id: "gemini-3.1-flash-image" }],
       })
     }
 
     try {
+      const metadataURL = uniqueMetadataURL()
       const { ctx, registered } = context({
         baseURL: "http://cliproxy.test:8317",
         apiKey: "secret",
+        modelMetadataURL: metadataURL,
       })
 
       await plugin.setup(ctx)
 
+      await waitUntil(() => registered.at(-1)?.models[0]?.limit?.context === 400_000)
       expect(requests).toHaveLength(2)
       const modelRequest = requests.find(
         (request) => request.url === "http://cliproxy.test:8317/v1/models",
       )
       expect(modelRequest?.headers.get("authorization")).toBe("Bearer secret")
-      expect(requests.some((request) => request.url === "https://models.dev/api.json")).toBe(true)
+      expect(requests.some((request) => request.url === metadataURL)).toBe(true)
 
-      expect(registered).toHaveLength(1)
-      expect(registered[0]?.info).toMatchObject({
+      expect(registered.at(-1)?.info).toMatchObject({
         id: "cliproxyapi",
         name: "CLIProxyAPI",
         activation: "enabled",
@@ -79,16 +138,21 @@ describe("plugin", () => {
           apiKey: "secret",
         },
       })
-      expect(registered[0]?.models.map((model) => model.id)).toEqual([
+      expect(registered.at(-1)?.models.map((model) => model.id)).toEqual([
         "gpt-5.6-terra",
         "gemini-3.1-flash-image",
       ])
+      expect(registered.at(-1)?.models[0]?.limit).toEqual({
+        context: 400_000,
+        output: 128_000,
+      })
     } finally {
-      globalThis.fetch = originalFetch
+      await restoreFetch(originalFetch)
     }
   })
 
   test("reads connection settings from an existing provider config", async () => {
+    await useCacheDir()
     const requests: Request[] = []
     const originalFetch = globalThis.fetch
     globalThis.fetch = async (input, init) => {
@@ -118,11 +182,12 @@ describe("plugin", () => {
         apiKey: "from-config",
       })
     } finally {
-      globalThis.fetch = originalFetch
+      await restoreFetch(originalFetch)
     }
   })
 
   test("selects the responses package when configured", async () => {
+    await useCacheDir()
     const originalFetch = globalThis.fetch
     globalThis.fetch = async () => Response.json({ data: [{ id: "chat-model" }] })
 
@@ -139,28 +204,304 @@ describe("plugin", () => {
         "@opencode/ai/providers/openai/responses",
       )
     } finally {
-      globalThis.fetch = originalFetch
+      await restoreFetch(originalFetch)
     }
   })
 
   test("keeps discovered models available when model metadata is unavailable", async () => {
+    await useCacheDir()
     const originalFetch = globalThis.fetch
     globalThis.fetch = async (input) => {
-      if (String(input) === "https://models.dev/api.json") {
+      if (String(input).startsWith("https://models.test/")) {
         return Response.json({ error: "unavailable" }, { status: 503 })
       }
       return Response.json({ data: [{ id: "chat-model", owned_by: "acme" }] })
     }
 
     try {
-      const { ctx, registered } = context({ baseURL: "http://cliproxy.test:8317" })
+      const { ctx, registered } = context({
+        baseURL: "http://cliproxy.test:8317",
+        modelMetadataURL: uniqueMetadataURL(),
+      })
+
+      await plugin.setup(ctx)
+      await waitUntil(() => registered.at(-1)?.models[0]?.id === "chat-model")
+
+      expect(registered.at(-1)?.models.map((model) => model.id)).toEqual(["chat-model"])
+      expect(registered.at(-1)?.models[0]?.package).toBeUndefined()
+    } finally {
+      await restoreFetch(originalFetch)
+    }
+  })
+
+  test("registers models before optional metadata resolves", async () => {
+    await useCacheDir()
+    const originalFetch = globalThis.fetch
+    let resolveMetadata: (response: Response) => void = () => {}
+    const metadataResponse = new Promise<Response>((resolve) => {
+      resolveMetadata = resolve
+    })
+    let metadataRequests = 0
+
+    const metadataURL = uniqueMetadataURL()
+    const baseURL = uniqueBaseURL()
+    globalThis.fetch = async (input) => {
+      if (String(input) === metadataURL) {
+        metadataRequests++
+        return metadataResponse
+      }
+      return Response.json({ data: [{ id: "chat-model" }] })
+    }
+
+    try {
+      const { ctx, registered } = context({
+        baseURL,
+        modelMetadataURL: metadataURL,
+      })
 
       await plugin.setup(ctx)
 
-      expect(registered[0]?.models.map((model) => model.id)).toEqual(["chat-model"])
-      expect(registered[0]?.models[0]?.package).toBeUndefined()
+      expect(registered[0]?.models).toEqual([])
+      await waitUntil(() => registered.at(-1)?.models[0]?.name === "Chat Model")
+      await waitUntil(() => metadataRequests === 1)
+
+      resolveMetadata(
+        Response.json({ chat: { models: { "chat-model": { name: "Enriched Model" } } } }),
+      )
+      await waitUntil(() => registered.at(-1)?.models[0]?.name === "Enriched Model")
+      expect(registered.at(-1)?.models[0]?.name).toBe("Enriched Model")
     } finally {
-      globalThis.fetch = originalFetch
+      await restoreFetch(originalFetch)
+    }
+  })
+
+  test("registers models from the disk cache before the catalog request resolves", async () => {
+    await useCacheDir()
+    const originalFetch = globalThis.fetch
+    let resolveCatalog: (response: Response) => void = () => {}
+    const catalogResponse = new Promise<Response>((resolve) => {
+      resolveCatalog = resolve
+    })
+    globalThis.fetch = async () => catalogResponse
+
+    try {
+      const { ctx, registered } = context({
+        baseURL: "http://cached.test:8317",
+        modelMetadataURL: false,
+      })
+      await writeCatalogCache("http://cached.test:8317/v1", [
+        { id: "cached-model", live: { name: "Cached Model" } },
+      ])
+
+      await plugin.setup(ctx)
+
+      expect(registered[0]?.models.map((model) => model.id)).toEqual(["cached-model"])
+      expect(registered[0]?.models[0]?.name).toBe("Cached Model")
+      resolveCatalog(Response.json({ data: [{ id: "live-model", display_name: "Live Model" }] }))
+      await waitUntil(() => registered.at(-1)?.models[0]?.name === "Live Model")
+    } finally {
+      resolveCatalog(Response.json({ data: [] }))
+      await restoreFetch(originalFetch)
+    }
+  })
+
+  test("registers the provider before the catalog request resolves", async () => {
+    await useCacheDir()
+    const originalFetch = globalThis.fetch
+    let resolveCatalog: (response: Response) => void = () => {}
+    const catalogResponse = new Promise<Response>((resolve) => {
+      resolveCatalog = resolve
+    })
+
+    const baseURL = uniqueBaseURL()
+    globalThis.fetch = async () => catalogResponse
+
+    try {
+      const { ctx, registered } = context({
+        baseURL,
+        modelMetadataURL: false,
+      })
+
+      await plugin.setup(ctx)
+
+      expect(registered[0]?.models).toEqual([])
+
+      resolveCatalog(Response.json({ data: [{ id: "chat-model" }] }))
+      await waitUntil(() => registered.at(-1)?.models[0]?.name === "Chat Model")
+      expect(registered.at(-1)?.models[0]?.name).toBe("Chat Model")
+    } finally {
+      resolveCatalog(Response.json({ data: [{ id: "chat-model" }] }))
+      await restoreFetch(originalFetch)
+    }
+  })
+
+  test("shares one metadata request across concurrent plugin instances", async () => {
+    await useCacheDir()
+    const originalFetch = globalThis.fetch
+    let releaseMetadata: () => void = () => {}
+    const metadataGate = new Promise<void>((resolve) => {
+      releaseMetadata = resolve
+    })
+    let metadataRequests = 0
+
+    const metadataURL = uniqueMetadataURL()
+    const baseURL = uniqueBaseURL()
+    globalThis.fetch = async (input) => {
+      if (String(input) === metadataURL) {
+        metadataRequests++
+        await metadataGate
+        return Response.json({
+          chat: { models: { "chat-model": { name: "Shared Metadata" } } },
+        })
+      }
+      return Response.json({ data: [{ id: "chat-model" }] })
+    }
+
+    try {
+      const first = context({ baseURL, modelMetadataURL: metadataURL })
+      const second = context({ baseURL, modelMetadataURL: metadataURL })
+
+      await Promise.all([plugin.setup(first.ctx), plugin.setup(second.ctx)])
+
+      expect(first.registered[0]?.models).toEqual([])
+      expect(second.registered[0]?.models).toEqual([])
+      await waitUntil(() => first.registered.at(-1)?.models[0]?.name === "Chat Model")
+      await waitUntil(() => second.registered.at(-1)?.models[0]?.name === "Chat Model")
+      await waitUntil(() => metadataRequests === 1)
+      expect(metadataRequests).toBe(1)
+
+      releaseMetadata()
+      await waitUntil(() => first.registered.at(-1)?.models[0]?.name === "Shared Metadata")
+      await waitUntil(() => second.registered.at(-1)?.models[0]?.name === "Shared Metadata")
+      expect(first.registered.at(-1)?.models[0]?.name).toBe("Shared Metadata")
+      expect(second.registered.at(-1)?.models[0]?.name).toBe("Shared Metadata")
+    } finally {
+      releaseMetadata()
+      await restoreFetch(originalFetch)
+    }
+  })
+
+  test("shares one catalog cache across API keys and does not refresh it after a failure", async () => {
+    const directory = await useCacheDir()
+    const baseURL = uniqueBaseURL()
+    const normalized = `${baseURL}/v1`
+    const originalFetch = globalThis.fetch
+    let catalogRequests = 0
+    globalThis.fetch = async () => {
+      catalogRequests++
+      if (catalogRequests === 1) return Response.json({ data: [{ id: "shared-model" }] })
+      return Response.json({ error: "down" }, { status: 503 })
+    }
+
+    try {
+      const first = context({ baseURL, apiKey: "one", modelMetadataURL: false })
+      await plugin.setup(first.ctx)
+      await waitUntil(() => first.registered.at(-1)?.models[0]?.id === "shared-model")
+      await pluginTesting.settled
+
+      const cached = await readCatalogCache(normalized, directory)
+      expect(cached?.models).toEqual([{ id: "shared-model" }])
+      const fetchedAt = cached?.fetchedAt
+
+      const second = context({ baseURL, apiKey: "two", modelMetadataURL: false })
+      await plugin.setup(second.ctx)
+      expect(second.registered[0]?.models.map((model) => model.id)).toEqual(["shared-model"])
+
+      await pluginTesting.refresh?.()
+      const afterFailure = await readCatalogCache(normalized, directory)
+      expect(afterFailure?.fetchedAt).toBe(fetchedAt)
+      expect(afterFailure?.models).toEqual([{ id: "shared-model" }])
+    } finally {
+      await restoreFetch(originalFetch)
+    }
+  })
+
+  test("waits for another process to finish the metadata download", async () => {
+    await useCacheDir()
+    const metadataURL = uniqueMetadataURL()
+    const baseURL = uniqueBaseURL()
+    const originalFetch = globalThis.fetch
+    let metadataRequests = 0
+
+    globalThis.fetch = async (input) => {
+      if (String(input) === metadataURL) {
+        metadataRequests++
+        return Response.json({ chat: { models: { "chat-model": { name: "Should Not Fetch" } } } })
+      }
+      return Response.json({ data: [{ id: "chat-model" }] })
+    }
+
+    const release = await acquireMetadataLock(metadataURL)
+    expect(release).toBeFunction()
+
+    try {
+      const { ctx, registered } = context({
+        baseURL,
+        modelMetadataURL: metadataURL,
+        discoveryTimeoutMs: 2_000,
+      })
+      const setup = plugin.setup(ctx)
+      await waitUntil(() => registered.at(-1)?.models[0]?.name === "Chat Model")
+      await writeMetadataCache(metadataURL, {
+        chat: { models: { "chat-model": { name: "Locked Metadata" } } },
+      })
+      await waitUntil(() => registered.at(-1)?.models[0]?.name === "Locked Metadata")
+      expect(metadataRequests).toBe(0)
+      await setup
+    } finally {
+      await release?.()
+      await restoreFetch(originalFetch)
+    }
+  })
+
+  test("does not reload the provider after the plugin is disposed", async () => {
+    await useCacheDir()
+    const originalFetch = globalThis.fetch
+    let resolveCatalog: (response: Response) => void = () => {}
+    const catalogResponse = new Promise<Response>((resolve) => {
+      resolveCatalog = resolve
+    })
+    globalThis.fetch = async () => catalogResponse
+
+    try {
+      const { ctx, registered } = context({
+        baseURL: uniqueBaseURL(),
+        modelMetadataURL: false,
+      })
+      const cleanup = await plugin.setup(ctx)
+      expect(registered).toHaveLength(1)
+      const pending = pluginTesting.refresh?.()
+
+      await cleanup?.()
+      resolveCatalog(Response.json({ data: [{ id: "late-model" }] }))
+      await pending
+
+      expect(registered).toHaveLength(1)
+      expect(registered[0]?.models).toEqual([])
+    } finally {
+      resolveCatalog(Response.json({ data: [] }))
+      await restoreFetch(originalFetch)
+    }
+  })
+
+  test("ignores a catalog cache entry that is not a model list", async () => {
+    const directory = await useCacheDir()
+    const baseURL = uniqueBaseURL()
+    await mkdir(directory, { recursive: true })
+    await Bun.write(
+      cacheInternals.catalogPath(`${baseURL}/v1`, directory),
+      JSON.stringify({ version: 1, fetchedAt: Date.now(), models: [{ ownedBy: "acme" }] }),
+    )
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => Response.json({ data: [{ id: "live-model" }] })
+
+    try {
+      const { ctx, registered } = context({ baseURL, modelMetadataURL: false })
+      await plugin.setup(ctx)
+      expect(registered[0]?.models).toEqual([])
+      await waitUntil(() => registered.at(-1)?.models[0]?.id === "live-model")
+    } finally {
+      await restoreFetch(originalFetch)
     }
   })
 })
@@ -420,6 +761,7 @@ describe("plugin live metadata", () => {
   })
 
   test("uses live limits when enrichment is disabled or fails", async () => {
+    await useCacheDir()
     const originalFetch = globalThis.fetch
     try {
       for (const modelMetadataURL of [false, "https://catalog.test/api.json"] as const) {
@@ -431,38 +773,48 @@ describe("plugin live metadata", () => {
         }
         const { ctx, registered } = context({ baseURL: "http://cliproxy.test:8317", modelMetadataURL })
         await plugin.setup(ctx)
+        await waitUntil(() => registered.at(-1)?.models[0]?.id === "local/qwen3:8b")
         const model = registered.at(-1)?.models[0]
         expect(model?.limit).toEqual({ context: 16_384, output: 4_096 })
         expect(model?.name).toBe("qwen3:8b (Ollama)")
       }
     } finally {
-      globalThis.fetch = originalFetch
+      await restoreFetch(originalFetch)
     }
   })
 
   test("refresh applies changed and removed live metadata for an unchanged model ID", async () => {
+    await useCacheDir()
     const originalFetch = globalThis.fetch
     const responses = [enriched(8_192), enriched(32_768), enriched(undefined)]
-    let calls = 0
-    globalThis.fetch = async () => Response.json(responses[Math.min(calls++, responses.length - 1)])
+    let response = responses[0]!
+    globalThis.fetch = async () => Response.json(response)
 
     let cleanup: void | (() => void | Promise<void>)
     try {
       const { ctx, registered } = context({
-        baseURL: "http://cliproxy.test:8317",
+        baseURL: uniqueBaseURL(),
         modelMetadataURL: false,
-        refreshIntervalMs: 10,
+        refreshIntervalMs: 0,
       })
       cleanup = await plugin.setup(ctx)
-      expect(registered.at(-1)?.models[0]?.limit).toEqual({ context: 8_192, output: 2_048 })
 
-      const waitFor = async (predicate: () => boolean) => {
-        for (let i = 0; i < 200 && !predicate(); i++) await Bun.sleep(5)
-      }
-      await waitFor(() => registered.at(-1)?.models[0]?.limit.context === 32_768)
-      expect(registered.at(-1)?.models[0]?.limit).toEqual({ context: 32_768, output: 8_192 })
+      await waitUntil(() =>
+        registered.some((entry) => entry.models[0]?.limit?.context === 8_192),
+      )
+      await pluginTesting.settled
+      expect(
+        registered.find((entry) => entry.models[0]?.limit?.context === 8_192)?.models[0]?.limit,
+      ).toEqual({ context: 8_192, output: 2_048 })
 
-      await waitFor(() => registered.at(-1)?.models[0]?.limit.context !== 32_768)
+      response = responses[1]!
+      await pluginTesting.refresh?.()
+      expect(
+        registered.find((entry) => entry.models[0]?.limit?.context === 32_768)?.models[0]?.limit,
+      ).toEqual({ context: 32_768, output: 8_192 })
+
+      response = responses[2]!
+      await pluginTesting.refresh?.()
       const defaults = buildModel({
         providerID: "cliproxyapi" as Provider.ID,
         model: { id: "local/qwen3:8b" },
@@ -472,7 +824,7 @@ describe("plugin live metadata", () => {
       expect(registered.at(-1)?.models.map((model) => model.id)).toEqual(["local/qwen3:8b"])
     } finally {
       if (typeof cleanup === "function") await cleanup()
-      globalThis.fetch = originalFetch
+      await restoreFetch(originalFetch)
     }
   })
 })
