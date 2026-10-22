@@ -12,13 +12,13 @@ This is the OpenCode V2 port of
 targets OpenCode V1. The V1 plugin API does not run in V2, so this package is a
 separate release built on `@opencode/plugin`.
 
-The plugin discovers CLIProxyAPI's live `/v1/models` catalog whenever it loads
-(and refreshes it in the background), then registers them as a provider with
-`ctx.provider.transform`. Available models appear in the normal `/models`
-picker under **CLIProxyAPI**. Model names, capabilities, limits, costs, and
-reasoning variants are enriched from live metadata on
-[models.dev](https://models.dev/). Deployment limits that the CLIProxyAPI server
-itself reports take precedence (see
+The plugin registers a provider with `ctx.provider.transform` immediately, then
+discovers CLIProxyAPI's live `/v1/models` catalog in the background. Available
+models appear in the normal `/models` picker under **CLIProxyAPI**. Model names,
+capabilities, limits, costs, and reasoning variants are enriched from live
+metadata on [models.dev](https://models.dev/), also in the background. Neither
+request can delay plugin activation. Deployment limits that the CLIProxyAPI
+server itself reports take precedence (see
 [Live model metadata](#live-model-metadata)). No model IDs are hard-coded.
 
 Claude models owned by Anthropic use OpenCode's Anthropic Messages runtime
@@ -89,12 +89,23 @@ pick up changes immediately.
 | `providerName` | `CLIProxyAPI` | Name displayed in the model picker |
 | `protocol` | `chat` | Default protocol for non-Anthropic models: `chat` uses `/chat/completions`; `responses` uses `/responses`. Claude models still use `/v1/messages`. |
 | `modelMetadataURL` | `https://models.dev/api.json` | Dynamic model metadata. Set to `false` to disable enrichment and use only inferred defaults. |
-| `discoveryTimeoutMs` | `10000` | Startup model-discovery timeout |
+| `discoveryTimeoutMs` | `10000` | CLIProxyAPI model-discovery timeout. Also bounds the optional, non-blocking metadata request. |
 | `refreshIntervalMs` | `300000` | Background catalog refresh interval. Set to `0` to refresh only at startup. |
 
-If model metadata cannot be reached, the plugin logs a warning and keeps the
-CLIProxyAPI-discovered models available with inferred capabilities and the
-configured default protocol.
+The plugin registers the provider before contacting either service, so a slow
+CLIProxyAPI server or models.dev cannot exceed OpenCode's plugin activation
+budget. The model list is filled in as soon as discovery finishes and is
+reloaded when optional metadata arrives. If metadata is slow or cannot be
+reached, the plugin logs a warning and keeps the CLIProxyAPI-discovered models
+with inferred capabilities and the configured default protocol.
+
+OpenCode may load the plugin in a separate process for every location. The last
+successful catalogs are cached under `~/.cache/opencode2-cliproxyapi` (or
+`CLIPROXYAPI_CACHE_DIR`) so later processes can register models immediately.
+The catalog cache is shared by server URL, not by API key. A file lock lets
+only one process download the metadata catalog; the others wait for that
+download and then read the cache. A failed request does not extend the cache
+lifetime, and disposing the plugin stops it from reloading the provider.
 
 ### Optional environment variables
 
