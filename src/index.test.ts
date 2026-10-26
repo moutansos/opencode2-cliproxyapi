@@ -35,7 +35,7 @@ import {
   writeCatalogCache,
   writeMetadataCache,
 } from "./cache.js"
-import plugin, { buildModel, pluginTesting, resolveLimit } from "./index.js"
+import plugin, { buildModel, pluginTesting, resolveLimit, retainRecentlySeenModels } from "./index.js"
 
 type Registered = {
   info: Provider.Info
@@ -298,7 +298,13 @@ describe("plugin", () => {
       expect(registered[0]?.models.map((model) => model.id)).toEqual(["cached-model"])
       expect(registered[0]?.models[0]?.name).toBe("Cached Model")
       resolveCatalog(Response.json({ data: [{ id: "live-model", display_name: "Live Model" }] }))
-      await waitUntil(() => registered.at(-1)?.models[0]?.name === "Live Model")
+      await waitUntil(() =>
+        registered.at(-1)?.models.some((model) => model.name === "Live Model"),
+      )
+      expect(registered.at(-1)?.models.map((model) => model.id)).toEqual([
+        "cached-model",
+        "live-model",
+      ])
     } finally {
       resolveCatalog(Response.json({ data: [] }))
       await restoreFetch(originalFetch)
@@ -503,6 +509,37 @@ describe("plugin", () => {
     } finally {
       await restoreFetch(originalFetch)
     }
+  })
+})
+
+describe("retainRecentlySeenModels", () => {
+  test("keeps a model through a short gap and drops it after the grace window", () => {
+    const previous = [{ id: "gpt-6.1-sol" }, { id: "gpt-6-sol" }]
+    const missing = new Map<string, number>()
+
+    const first = retainRecentlySeenModels(previous, [{ id: "gpt-6-sol" }], missing, 2)
+    expect(first.map((model) => model.id)).toEqual(["gpt-6.1-sol", "gpt-6-sol"])
+    expect(missing.get("gpt-6.1-sol")).toBe(1)
+
+    const returned = retainRecentlySeenModels(first, [{ id: "gpt-6-sol" }, { id: "gpt-6.1-sol", ownedBy: "openai" }], missing, 2)
+    expect(returned.map((model) => model.id)).toEqual(["gpt-6.1-sol", "gpt-6-sol"])
+    expect(returned[0]).toEqual({ id: "gpt-6.1-sol", ownedBy: "openai" })
+    expect(missing.has("gpt-6.1-sol")).toBe(false)
+
+    let current = returned
+    current = retainRecentlySeenModels(current, [{ id: "gpt-6-sol" }], missing, 2)
+    current = retainRecentlySeenModels(current, [{ id: "gpt-6-sol" }], missing, 2)
+    expect(current.map((model) => model.id)).toEqual(["gpt-6.1-sol", "gpt-6-sol"])
+    current = retainRecentlySeenModels(current, [{ id: "gpt-6-sol" }], missing, 2)
+    expect(current.map((model) => model.id)).toEqual(["gpt-6-sol"])
+    expect(missing.has("gpt-6.1-sol")).toBe(false)
+  })
+
+  test("appends a newly discovered model without counting it as missing", () => {
+    const missing = new Map<string, number>([["gone", 1]])
+    const retained = retainRecentlySeenModels([{ id: "kept" }], [{ id: "kept" }, { id: "new" }], missing)
+    expect(retained.map((model) => model.id)).toEqual(["kept", "new"])
+    expect(missing.has("new")).toBe(false)
   })
 })
 
@@ -822,6 +859,39 @@ describe("plugin live metadata", () => {
       }).limit
       expect(registered.at(-1)?.models[0]?.limit).toEqual(defaults)
       expect(registered.at(-1)?.models.map((model) => model.id)).toEqual(["local/qwen3:8b"])
+    } finally {
+      if (typeof cleanup === "function") await cleanup()
+      await restoreFetch(originalFetch)
+    }
+  })
+
+  test("keeps a model that one catalog refresh omits", async () => {
+    const directory = await useCacheDir()
+    const baseURL = uniqueBaseURL()
+    const originalFetch = globalThis.fetch
+    let omit = false
+    globalThis.fetch = async () =>
+      Response.json({
+        data: omit ? [{ id: "gpt-6-sol" }] : [{ id: "gpt-6.1-sol" }, { id: "gpt-6-sol" }],
+      })
+
+    let cleanup: void | (() => void | Promise<void>)
+    try {
+      const { ctx, registered } = context({
+        baseURL,
+        modelMetadataURL: false,
+        refreshIntervalMs: 0,
+      })
+      cleanup = await plugin.setup(ctx)
+      await waitUntil(() => registered.at(-1)?.models.some((model) => model.id === "gpt-6.1-sol"))
+      await pluginTesting.settled
+
+      omit = true
+      await pluginTesting.refresh?.()
+
+      expect(registered.at(-1)?.models.map((model) => model.id)).toEqual(["gpt-6.1-sol", "gpt-6-sol"])
+      const cached = await readCatalogCache(`${baseURL}/v1`, directory)
+      expect(cached?.models.map((model) => model.id)).toEqual(["gpt-6.1-sol", "gpt-6-sol"])
     } finally {
       if (typeof cleanup === "function") await cleanup()
       await restoreFetch(originalFetch)

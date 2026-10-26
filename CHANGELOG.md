@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep a model that CLIProxyAPI omits from a single `/v1/models` response.
+  The catalog is refreshed often, and one incomplete list was enough to
+  unregister a model OpenCode was already using, which surfaced as
+  `Model unavailable`. A model is now dropped only after three consecutive
+  successful catalogs leave it out. A failed request still keeps the previous
+  catalog and does not count toward that window.
+
 ## [0.3.1] - 2026-10-21
 
 ### Fixed

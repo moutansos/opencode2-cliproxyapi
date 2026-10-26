@@ -25,6 +25,11 @@ const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000
 const DEFAULT_MODEL_METADATA_URL = "https://models.dev/api.json"
 const DEFAULT_REFRESH_MS = 5 * 60_000
 const METADATA_LOCK_POLL_MS = 50
+// CLIProxyAPI's /v1/models list can omit a model for one response and include
+// it again on the next. Unregistering it immediately makes OpenCode report
+// "Model unavailable" for a session that is already using it. A model must be
+// missing from this many consecutive successful catalogs before it is dropped.
+const MODEL_REMOVAL_GRACE_REFRESHES = 3
 
 // Lets tests drive a refresh without waiting on the interval timer, and wait
 // until the background refresh has released the network.
@@ -113,6 +118,9 @@ export default Plugin.define({
     let registered = false
     let closed = false
     let refreshPromise: Promise<void> | undefined
+    // How many consecutive successful catalogs have omitted each model. A failed
+    // request does not count, because the previous catalog is kept as-is.
+    const missingRefreshes = new Map<string, number>()
 
     const rebuild = async (reload: boolean) => {
       if (closed) return
@@ -137,14 +145,18 @@ export default Plugin.define({
         return
       }
 
-      catalog = discovered
+      catalog = retainRecentlySeenModels(catalog, discovered, missingRefreshes)
       await writeCatalogCache(catalogCacheKey, catalog).catch((error) => {
         const message = error instanceof Error ? error.message : String(error)
         console.warn(`[cliproxyapi] could not update the catalog cache: ${message}`)
       })
       if (closed) return
       await rebuild(reload)
-      console.log(`[cliproxyapi] discovered ${catalog.length} models from ${baseURL}`)
+      const held = catalog.length - discovered.length
+      console.log(
+        `[cliproxyapi] discovered ${discovered.length} models from ${baseURL}` +
+          (held > 0 ? `; keeping ${held} recently seen` : ""),
+      )
     }
 
     const refreshMetadata = async () => {
@@ -247,6 +259,47 @@ export {
   parseModelMetadataCatalog,
 } from "./catalog.js"
 export type { CatalogModel, ModelMetadata, ModelMetadataCatalog } from "./catalog.js"
+
+/**
+ * Keeps models that a successful catalog omitted, until they have been missing
+ * for `grace` consecutive refreshes. A model that reappears is kept from the
+ * new catalog and its absence count is cleared. The returned list preserves
+ * the previous order so a flapping entry does not reshuffle the picker.
+ */
+export function retainRecentlySeenModels(
+  previous: readonly CatalogModel[],
+  discovered: readonly CatalogModel[],
+  missingRefreshes: Map<string, number>,
+  grace = MODEL_REMOVAL_GRACE_REFRESHES,
+) {
+  const seen = new Map(discovered.map((model) => [model.id, model]))
+  const retained: CatalogModel[] = []
+
+  for (const model of previous) {
+    const current = seen.get(model.id)
+    if (current) {
+      missingRefreshes.delete(model.id)
+      retained.push(current)
+      seen.delete(model.id)
+      continue
+    }
+
+    const missed = (missingRefreshes.get(model.id) ?? 0) + 1
+    if (missed > grace) {
+      missingRefreshes.delete(model.id)
+      continue
+    }
+    missingRefreshes.set(model.id, missed)
+    retained.push(model)
+  }
+
+  for (const model of seen.values()) {
+    missingRefreshes.delete(model.id)
+    retained.push(model)
+  }
+
+  return retained
+}
 
 export function buildModel(input: {
   providerID: Provider.ID
