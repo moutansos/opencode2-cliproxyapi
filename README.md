@@ -237,7 +237,18 @@ curl -X POST -H "Authorization: Bearer your-cli-proxy-api-key" \
   "http://your-server:8317/v1/chat/completions"
 ```
 
-The plugin drops such models once it refreshes its catalog.
+The plugin keeps a model that disappears from one refresh and drops it only
+after it has been missing from three consecutive successful catalogs. A failed
+request does not count toward that window.
+
+### A model shows as unavailable
+
+OpenCode reports `Model unavailable: cliproxyapi/<model>` when that ID is not
+in the provider's current model list. CLIProxyAPI sometimes omits a model from
+one `/v1/models` response and includes it again on the next. The plugin keeps
+such a model registered until it has been missing from three consecutive
+successful catalogs, so one incomplete list does not unregister a model a
+session is already using.
 
 ### Environment configuration works in one terminal but not another
 
