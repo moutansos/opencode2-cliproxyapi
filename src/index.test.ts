@@ -602,6 +602,37 @@ describe("buildModel", () => {
     expect(model.variants.map((variant) => variant.id)).toEqual(["low", "medium", "high"])
   })
 
+  test("routes current OpenAI families through the responses package", () => {
+    const ids = [
+      "gpt-5.3-codex",
+      "Copilot/gpt-5.3-codex",
+      "openai/gpt-5.4-nano",
+      "gpt-5.6-sol",
+      "gpt-6.1-terra",
+    ]
+    for (const id of ids) {
+      expect(buildModel({ providerID, model: { id }, metadata: {} }).package).toBe(
+        "@opencode/ai/providers/openai/responses",
+      )
+    }
+  })
+
+  test("keeps older OpenAI chat families on the provider package", () => {
+    for (const id of ["gpt-4o", "Copilot/gpt-4.1", "gpt-4o-mini", "mai-code-1.1-flash"]) {
+      expect(buildModel({ providerID, model: { id }, metadata: {} }).package).toBeUndefined()
+    }
+  })
+
+  test("lets an explicit responses family override the model id", () => {
+    expect(
+      buildModel({
+        providerID,
+        model: { id: "custom-coder" },
+        metadata: { acme: { models: { "custom-coder": { family: "gpt-5" } } } },
+      }).package,
+    ).toBe("@opencode/ai/providers/openai/responses")
+  })
+
   test("leaves OpenAI-compatible models on the provider package", () => {
     expect(
       buildModel({ providerID, model: { id: "chat-model", ownedBy: "chat" }, metadata }).package,

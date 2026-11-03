@@ -258,6 +258,7 @@ export function buildModel(input: {
   const metadata = resolved.metadata
   const image = isImageModel(input.model.id)
   const anthropic = usesAnthropicMessages(input.model, resolved.npm)
+  const responses = !anthropic && usesResponses(input.model, metadata?.family)
   const efforts = metadata?.reasoningEfforts ?? (anthropic ? [...DEFAULT_ANTHROPIC_EFFORTS] : undefined)
   const defaults = Model.Info.default(input.providerID, modelID)
   const limit = resolveLimit({
@@ -270,7 +271,7 @@ export function buildModel(input: {
     ...defaults,
     name: input.model.live?.name ?? metadata?.name ?? displayName(input.model.id),
     ...(metadata?.family ? { family: Model.Family.make(metadata.family) } : {}),
-    ...(anthropic ? { package: MESSAGES_PACKAGE } : {}),
+    ...(anthropic ? { package: MESSAGES_PACKAGE } : responses ? { package: RESPONSES_PACKAGE } : {}),
     capabilities: {
       tools: metadata?.toolCall ?? !image,
       input:
@@ -347,6 +348,22 @@ export function resolveLimit(input: {
 
 export function usesAnthropicMessages(model: CatalogModel, npm?: string) {
   return npm === ANTHROPIC_NPM || model.ownedBy === "anthropic"
+}
+
+/**
+ * Current OpenAI reasoning and Codex families speak the Responses API. Older
+ * chat families such as gpt-4 and gpt-4o stay on chat completions. The model
+ * id is matched without a provider prefix, so Copilot/gpt-5.3-codex and
+ * gpt-5.3-codex follow the same rule. An explicit metadata family wins.
+ */
+export function usesResponses(model: CatalogModel, family?: string) {
+  const identity = `${family ?? ""} ${modelIdentity(model.id)}`.toLowerCase()
+  return /(?:^|[^a-z0-9])(?:codex|gpt-(?:[5-9]|[1-9][0-9]+))(?![a-z0-9])/.test(identity)
+}
+
+function modelIdentity(modelID: string) {
+  const slash = modelID.lastIndexOf("/")
+  return slash === -1 ? modelID : modelID.slice(slash + 1)
 }
 
 function anthropicEffort(effort: string) {

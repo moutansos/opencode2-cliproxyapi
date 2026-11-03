@@ -87,7 +87,7 @@ pick up changes immediately.
 | `apiKey` | `CLIPROXY_API_KEY` | CLIProxyAPI key |
 | `providerID` | `cliproxyapi` | ID used in `provider/model` names |
 | `providerName` | `CLIProxyAPI` | Name displayed in the model picker |
-| `protocol` | `chat` | Default protocol for non-Anthropic models: `chat` uses `/chat/completions`; `responses` uses `/responses`. Claude models still use `/v1/messages`. |
+| `protocol` | `chat` | Default protocol for models that do not select their own. `chat` uses `/chat/completions`; `responses` uses `/responses`. Claude models use `/v1/messages`. Codex and current GPT families (GPT-5 and newer, including prefixed IDs such as `Copilot/gpt-5.3-codex`) use `/responses`. Older GPT chat families stay on chat completions. |
 | `modelMetadataURL` | `https://models.dev/api.json` | Dynamic model metadata. Set to `false` to disable enrichment and use only inferred defaults. |
 | `discoveryTimeoutMs` | `10000` | CLIProxyAPI model-discovery timeout. Also bounds the optional, non-blocking metadata request. |
 | `refreshIntervalMs` | `300000` | Background catalog refresh interval. Set to `0` to refresh only at startup. |
