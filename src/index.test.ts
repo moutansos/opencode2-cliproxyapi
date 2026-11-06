@@ -50,15 +50,22 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 2_000) {
   }
 }
 
+type ModelRequestHook = (event: {
+  sessionID: string
+  headers: Record<string, string>
+}) => void
+
 function context(
   options: Record<string, unknown>,
   existing?: { settings?: Record<string, unknown> },
 ) {
   const registered: Registered[] = []
   const transforms: Array<(editor: { add: (input: Registered) => void }) => void> = []
+  const modelRequestHooks: ModelRequestHook[] = []
 
   return {
     registered,
+    modelRequestHooks,
     ctx: {
       options: { refreshIntervalMs: 0, ...options },
       provider: {
@@ -79,7 +86,10 @@ function context(
         hook: async () => ({ dispose: async () => {} }),
       },
       session: {
-        hook: async () => ({ dispose: async () => {} }),
+        hook: async (name: string, callback: ModelRequestHook) => {
+          if (name === "model.request") modelRequestHooks.push(callback)
+          return { dispose: async () => {} }
+        },
       },
     } as unknown as PluginTypes.Context,
   }
@@ -480,6 +490,72 @@ describe("plugin", () => {
       expect(registered[0]?.models).toEqual([])
     } finally {
       resolveCatalog(Response.json({ data: [] }))
+      await restoreFetch(originalFetch)
+    }
+  })
+
+  test("sends the OpenCode session ID as X-Thread-Id without replacing a caller header", async () => {
+    await useCacheDir()
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => Response.json({ data: [{ id: "chat-model" }] })
+
+    try {
+      const { ctx, modelRequestHooks } = context({
+        baseURL: uniqueBaseURL(),
+        apiKey: "secret",
+        modelMetadataURL: false,
+      })
+
+      await plugin.setup(ctx)
+
+      expect(modelRequestHooks).toHaveLength(1)
+      const hook = modelRequestHooks[0]!
+
+      const headers: Record<string, string> = {}
+      hook({ sessionID: "ses_parent", headers })
+      expect(headers).toEqual({
+        authorization: "Bearer secret",
+        "X-Thread-Id": "ses_parent",
+      })
+
+      const preset: Record<string, string> = { "X-Thread-Id": "caller-thread" }
+      hook({ sessionID: "ses_child", headers: preset })
+      expect(preset["X-Thread-Id"]).toBe("caller-thread")
+      expect(preset.authorization).toBe("Bearer secret")
+
+      const cased: Record<string, string> = {
+        "x-thread-id": "caller-thread",
+        Authorization: "Bearer caller",
+      }
+      hook({ sessionID: "ses_parent", headers: cased })
+      expect(cased).toEqual({
+        "x-thread-id": "caller-thread",
+        Authorization: "Bearer caller",
+      })
+      expect(Object.keys(cased)).toEqual(["x-thread-id", "Authorization"])
+    } finally {
+      await restoreFetch(originalFetch)
+    }
+  })
+
+  test("does not set X-Thread-Id when archive grouping is disabled", async () => {
+    await useCacheDir()
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => Response.json({ data: [{ id: "chat-model" }] })
+
+    try {
+      const { ctx, modelRequestHooks } = context({
+        baseURL: uniqueBaseURL(),
+        modelMetadataURL: false,
+        archiveThread: false,
+      })
+
+      await plugin.setup(ctx)
+
+      const headers: Record<string, string> = {}
+      modelRequestHooks[0]!({ sessionID: "ses_parent", headers })
+      expect(headers).toEqual({})
+    } finally {
       await restoreFetch(originalFetch)
     }
   })

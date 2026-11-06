@@ -91,6 +91,7 @@ pick up changes immediately.
 | `modelMetadataURL` | `https://models.dev/api.json` | Dynamic model metadata. Set to `false` to disable enrichment and use only inferred defaults. |
 | `discoveryTimeoutMs` | `10000` | CLIProxyAPI model-discovery timeout. Also bounds the optional, non-blocking metadata request. |
 | `refreshIntervalMs` | `300000` | Background catalog refresh interval. Set to `0` to refresh only at startup. |
+| `archiveThread` | `true` | Send the OpenCode session ID as the `X-Thread-Id` header on every model request. CLIProxyAPI's session archive uses that header to group a session's requests together. Set to `false` to leave the header unset. A header the caller already set is kept, including a different casing such as `x-thread-id`. |
 
 The plugin registers the provider before contacting either service, so a slow
 CLIProxyAPI server or models.dev cannot exceed OpenCode's plugin activation

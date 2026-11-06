@@ -7,6 +7,14 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Send the OpenCode session ID as `X-Thread-Id` on model requests so
+  CLIProxyAPI session archives group every request from one session instead
+  of recording each request as its own session. Set `archiveThread` to
+  `false` to disable it. A caller-supplied thread or authorization header is
+  left unchanged, matched without regard to casing.
+
 ## [0.3.1] - 2026-10-21
 
 ### Fixed

@@ -54,6 +54,11 @@ type ConnectorOptions = {
   modelMetadataURL?: string | false
   discoveryTimeoutMs?: number
   refreshIntervalMs?: number
+  /**
+   * Send the OpenCode session ID as `X-Thread-Id` so CLIProxyAPI session
+   * archives group every request from one session. Defaults to true.
+   */
+  archiveThread?: boolean
 }
 
 // When a server supplies a context window but no output limit, an inherited
@@ -90,6 +95,7 @@ export default Plugin.define({
     const timeoutMs = options.discoveryTimeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS
     const refreshMs = options.refreshIntervalMs ?? DEFAULT_REFRESH_MS
     const metadataURL = options.modelMetadataURL ?? DEFAULT_MODEL_METADATA_URL
+    const archiveThread = options.archiveThread ?? true
     // The catalog is not secret and does not vary by credential. Keying only on
     // the server lets every location share one cache entry.
     const catalogCacheKey = baseURL
@@ -188,8 +194,16 @@ export default Plugin.define({
     await ctx.session.hook(
       "model.request",
       (event) => {
-        if (!apiKey) return
-        event.headers.authorization ??= `Bearer ${apiKey}`
+        // Header names are case-insensitive once this object becomes Headers.
+        // Match any existing casing and leave that key untouched.
+        if (apiKey && !hasHeader(event.headers, "authorization")) {
+          event.headers.authorization = `Bearer ${apiKey}`
+        }
+        // cpa-session-archive groups on Thread-Id / X-Thread-Id. Child sessions
+        // have their own ID.
+        if (archiveThread && event.sessionID && !hasHeader(event.headers, "X-Thread-Id")) {
+          event.headers["X-Thread-Id"] = event.sessionID
+        }
       },
       { providerID },
     )
@@ -542,11 +556,17 @@ function readOptions(input: Record<string, unknown>): ConnectorOptions {
       typeof input.refreshIntervalMs === "number" && input.refreshIntervalMs >= 0
         ? input.refreshIntervalMs
         : undefined,
+    archiveThread: input.archiveThread === false ? false : undefined,
   }
 }
 
 function stringOption(value: unknown) {
   return typeof value === "string" && value.trim() !== "" ? value : undefined
+}
+
+function hasHeader(headers: Record<string, string>, name: string) {
+  const lower = name.toLowerCase()
+  return Object.keys(headers).some((key) => key.toLowerCase() === lower)
 }
 
 function money(value: number) {
