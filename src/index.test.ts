@@ -522,6 +522,17 @@ describe("plugin", () => {
       hook({ sessionID: "ses_child", headers: preset })
       expect(preset["X-Thread-Id"]).toBe("caller-thread")
       expect(preset.authorization).toBe("Bearer secret")
+
+      const cased: Record<string, string> = {
+        "x-thread-id": "caller-thread",
+        Authorization: "Bearer caller",
+      }
+      hook({ sessionID: "ses_parent", headers: cased })
+      expect(cased).toEqual({
+        "x-thread-id": "caller-thread",
+        Authorization: "Bearer caller",
+      })
+      expect(Object.keys(cased)).toEqual(["x-thread-id", "Authorization"])
     } finally {
       await restoreFetch(originalFetch)
     }

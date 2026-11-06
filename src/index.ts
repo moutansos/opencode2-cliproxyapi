@@ -194,11 +194,15 @@ export default Plugin.define({
     await ctx.session.hook(
       "model.request",
       (event) => {
-        if (apiKey) event.headers.authorization ??= `Bearer ${apiKey}`
-        // cpa-session-archive groups on Thread-Id / X-Thread-Id. A caller that
-        // already set the header keeps it. Child sessions have their own ID.
-        if (archiveThread && event.sessionID) {
-          event.headers["X-Thread-Id"] ??= event.sessionID
+        // Header names are case-insensitive once this object becomes Headers.
+        // Match any existing casing and leave that key untouched.
+        if (apiKey && !hasHeader(event.headers, "authorization")) {
+          event.headers.authorization = `Bearer ${apiKey}`
+        }
+        // cpa-session-archive groups on Thread-Id / X-Thread-Id. Child sessions
+        // have their own ID.
+        if (archiveThread && event.sessionID && !hasHeader(event.headers, "X-Thread-Id")) {
+          event.headers["X-Thread-Id"] = event.sessionID
         }
       },
       { providerID },
@@ -558,6 +562,11 @@ function readOptions(input: Record<string, unknown>): ConnectorOptions {
 
 function stringOption(value: unknown) {
   return typeof value === "string" && value.trim() !== "" ? value : undefined
+}
+
+function hasHeader(headers: Record<string, string>, name: string) {
+  const lower = name.toLowerCase()
+  return Object.keys(headers).some((key) => key.toLowerCase() === lower)
 }
 
 function money(value: number) {
