@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-08
+
 ### Added
 
 - Send the OpenCode session ID as `X-Thread-Id` on model requests so
@@ -14,6 +16,15 @@ and this project follows [Semantic Versioning](https://semver.org/).
   of recording each request as its own session. Set `archiveThread` to
   `false` to disable it. A caller-supplied thread or authorization header is
   left unchanged, matched without regard to casing.
+  ([#8](https://github.com/moutansos/opencode2-cliproxyapi/pull/8))
+
+### Fixed
+
+- Route Codex and current OpenAI families (GPT-5 and newer, including
+  prefixed catalog IDs such as `Copilot/gpt-5.3-codex`) through the Responses
+  API. Those models reject chat completions. Older GPT chat families stay on
+  chat completions.
+  ([#7](https://github.com/moutansos/opencode2-cliproxyapi/pull/7))
 
 ## [0.3.1] - 2026-10-21
 
@@ -128,7 +139,8 @@ Initial release of `opencode2-cliproxyapi`, the OpenCode V2 port of
 - Manual merging of existing `provider.cliproxyapi` config. V2 layers user
   configuration over registered provider sources automatically.
 
-[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.2.1...v0.2.2
