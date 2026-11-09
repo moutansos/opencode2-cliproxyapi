@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-09
+
 ### Changed
 
 - Route Grok families (`grok-4.7` and other `grok-*` IDs, including prefixed
@@ -15,12 +17,14 @@ and this project follows [Semantic Versioning](https://semver.org/).
   streams are only partially archived. Claude, older GPT chat families, and
   other models such as Ollama `NewLlama/...` stay on their current protocols.
   The provider-wide `protocol` default is unchanged.
+  ([#9](https://github.com/moutansos/opencode2-cliproxyapi/pull/9))
 
 ### Added
 
 - `modelProtocols` overrides the protocol for individual catalog IDs. Set
   `"grok-4.7": "chat"` to send Grok back to chat completions without a
   release. A key of the bare ID also matches prefixed copies.
+  ([#9](https://github.com/moutansos/opencode2-cliproxyapi/pull/9))
 
 ## [0.4.0] - 2026-11-08
 
@@ -154,7 +158,8 @@ Initial release of `opencode2-cliproxyapi`, the OpenCode V2 port of
 - Manual merging of existing `provider.cliproxyapi` config. V2 layers user
   configuration over registered provider sources automatically.
 
-[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.2.2...v0.3.0
