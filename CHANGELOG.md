@@ -7,6 +7,21 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Route Grok families (`grok-4.7` and other `grok-*` IDs, including prefixed
+  catalog IDs such as `OpenRouter/x-ai/grok-4.7`) through the Responses API.
+  CLIProxyAPI already converts those requests upstream, and chat-completions
+  streams are only partially archived. Claude, older GPT chat families, and
+  other models such as Ollama `NewLlama/...` stay on their current protocols.
+  The provider-wide `protocol` default is unchanged.
+
+### Added
+
+- `modelProtocols` overrides the protocol for individual catalog IDs. Set
+  `"grok-4.7": "chat"` to send Grok back to chat completions without a
+  release. A key of the bare ID also matches prefixed copies.
+
 ## [0.4.0] - 2026-11-08
 
 ### Added

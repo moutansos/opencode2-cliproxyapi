@@ -196,6 +196,40 @@ describe("plugin", () => {
     }
   })
 
+  test("applies modelProtocols without changing the provider package", async () => {
+    await useCacheDir()
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () =>
+      Response.json({
+        data: [
+          { id: "grok-4.7", owned_by: "xai" },
+          { id: "NewLlama/qwen3-coder:30b", owned_by: "ollama" },
+        ],
+      })
+
+    try {
+      const { ctx, registered } = context({
+        baseURL: "http://cliproxy.test:8317",
+        modelMetadataURL: false,
+        modelProtocols: { "grok-4.7": "chat", ignored: "messages", "": "chat" },
+      })
+
+      await plugin.setup(ctx)
+      await waitUntil(() => (registered.at(-1)?.models.length ?? 0) === 2)
+
+      expect(registered.at(-1)?.info.package).toBe(
+        "@opencode/ai/providers/openai-compatible",
+      )
+      const byID = Object.fromEntries(
+        (registered.at(-1)?.models ?? []).map((model) => [model.id, model.package]),
+      )
+      expect(byID["grok-4.7"]).toBeUndefined()
+      expect(byID["NewLlama/qwen3-coder:30b"]).toBeUndefined()
+    } finally {
+      await restoreFetch(originalFetch)
+    }
+  })
+
   test("selects the responses package when configured", async () => {
     await useCacheDir()
     const originalFetch = globalThis.fetch
@@ -697,6 +731,90 @@ describe("buildModel", () => {
     for (const id of ["gpt-4o", "Copilot/gpt-4.1", "gpt-4o-mini", "mai-code-1.1-flash"]) {
       expect(buildModel({ providerID, model: { id }, metadata: {} }).package).toBeUndefined()
     }
+  })
+
+  test("routes grok families through the responses package", () => {
+    const ids = [
+      "grok-4.7",
+      "grok-4.3",
+      "grok-3-mini",
+      "grok-build-0.1",
+      "grok-imagine-image",
+      "OpenRouter/x-ai/grok-4.7",
+      "OpenRouter/~x-ai/grok-latest",
+      "Copilot/grok-4.7",
+    ]
+    for (const id of ids) {
+      expect(buildModel({ providerID, model: { id, ownedBy: "xai" }, metadata: {} }).package).toBe(
+        "@opencode/ai/providers/openai/responses",
+      )
+    }
+  })
+
+  test("keeps Claude, older GPT, and Ollama models on their current packages", () => {
+    expect(
+      buildModel({
+        providerID,
+        model: { id: "claude-opus-5", ownedBy: "anthropic" },
+        metadata: {},
+      }).package,
+    ).toBe("@opencode/ai/providers/anthropic")
+    for (const id of [
+      "gpt-4o",
+      "NewLlama/glm-4.7-flash:q4_K_M",
+      "NewLlama/qwen3-coder:30b",
+      "opencode-go",
+      "opencode-go/qwen3-coder",
+    ]) {
+      expect(buildModel({ providerID, model: { id }, metadata: {} }).package).toBeUndefined()
+    }
+  })
+
+  test("lets modelProtocols send a grok model back to chat completions", () => {
+    expect(
+      buildModel({
+        providerID,
+        model: { id: "grok-4.7", ownedBy: "xai" },
+        metadata: {},
+        modelProtocols: { "grok-4.7": "chat" },
+      }).package,
+    ).toBeUndefined()
+    expect(
+      buildModel({
+        providerID,
+        model: { id: "OpenRouter/x-ai/grok-4.7" },
+        metadata: {},
+        modelProtocols: { "grok-4.7": "chat" },
+      }).package,
+    ).toBeUndefined()
+  })
+
+  test("lets modelProtocols force responses without changing other models", () => {
+    const modelProtocols = { "custom-coder": "responses" as const }
+    expect(
+      buildModel({
+        providerID,
+        model: { id: "custom-coder" },
+        metadata: {},
+        modelProtocols,
+      }).package,
+    ).toBe("@opencode/ai/providers/openai/responses")
+    expect(
+      buildModel({
+        providerID,
+        model: { id: "NewLlama/qwen3-coder:30b" },
+        metadata: {},
+        modelProtocols,
+      }).package,
+    ).toBeUndefined()
+    expect(
+      buildModel({
+        providerID,
+        model: { id: "claude-opus-5", ownedBy: "anthropic" },
+        metadata: {},
+        modelProtocols: { "claude-opus-5": "responses" },
+      }).package,
+    ).toBe("@opencode/ai/providers/anthropic")
   })
 
   test("lets an explicit responses family override the model id", () => {
