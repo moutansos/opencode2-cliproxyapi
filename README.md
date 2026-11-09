@@ -87,7 +87,8 @@ pick up changes immediately.
 | `apiKey` | `CLIPROXY_API_KEY` | CLIProxyAPI key |
 | `providerID` | `cliproxyapi` | ID used in `provider/model` names |
 | `providerName` | `CLIProxyAPI` | Name displayed in the model picker |
-| `protocol` | `chat` | Default protocol for models that do not select their own. `chat` uses `/chat/completions`; `responses` uses `/responses`. Claude models use `/v1/messages`. Codex and current GPT families (GPT-5 and newer, including prefixed IDs such as `Copilot/gpt-5.3-codex`) use `/responses`. Older GPT chat families stay on chat completions. |
+| `protocol` | `chat` | Default protocol for models that do not select their own. `chat` uses `/chat/completions`; `responses` uses `/responses`. Claude models use `/v1/messages`. Codex, current GPT families (GPT-5 and newer, including prefixed IDs such as `Copilot/gpt-5.3-codex`), and Grok families (`grok-4.7` and other `grok-*` IDs, including prefixed IDs such as `OpenRouter/x-ai/grok-4.7`) use `/responses`. Older GPT chat families, Ollama models such as `NewLlama/...`, and other plugin-provided models stay on chat completions. This option does not change those selections. |
+| `modelProtocols` | none | Per-model protocol override. Keys are catalog IDs, or the ID after the last `/`. `"grok-4.7": "chat"` sends that model, and prefixed copies of it, back to chat completions; `"some-model": "responses"` forces the Responses API. Claude models stay on `/v1/messages`. Unknown values are ignored. |
 | `modelMetadataURL` | `https://models.dev/api.json` | Dynamic model metadata. Set to `false` to disable enrichment and use only inferred defaults. |
 | `discoveryTimeoutMs` | `10000` | CLIProxyAPI model-discovery timeout. Also bounds the optional, non-blocking metadata request. |
 | `refreshIntervalMs` | `300000` | Background catalog refresh interval. Set to `0` to refresh only at startup. |

@@ -51,6 +51,13 @@ type ConnectorOptions = {
   providerID?: string
   providerName?: string
   protocol?: "chat" | "responses"
+  /**
+   * Per-model protocol override. Keys are catalog ids (`grok-4.7`) or the id
+   * after the last slash (`OpenRouter/x-ai/grok-4.7` matches `grok-4.7`).
+   * `chat` forces chat completions; `responses` forces the Responses API.
+   * Claude models still use Messages and are not overridden.
+   */
+  modelProtocols?: Record<string, "chat" | "responses">
   modelMetadataURL?: string | false
   discoveryTimeoutMs?: number
   refreshIntervalMs?: number
@@ -96,6 +103,7 @@ export default Plugin.define({
     const refreshMs = options.refreshIntervalMs ?? DEFAULT_REFRESH_MS
     const metadataURL = options.modelMetadataURL ?? DEFAULT_MODEL_METADATA_URL
     const archiveThread = options.archiveThread ?? true
+    const modelProtocols = options.modelProtocols
     // The catalog is not secret and does not vary by credential. Keying only on
     // the server lets every location share one cache entry.
     const catalogCacheKey = baseURL
@@ -122,7 +130,9 @@ export default Plugin.define({
 
     const rebuild = async (reload: boolean) => {
       if (closed) return
-      source.models = catalog.map((model) => buildModel({ providerID, model, metadata }))
+      source.models = catalog.map((model) =>
+        buildModel({ providerID, model, metadata, modelProtocols }),
+      )
       if (reload && registered && !closed) await ctx.provider.reload()
     }
 
@@ -266,13 +276,15 @@ export function buildModel(input: {
   providerID: Provider.ID
   model: CatalogModel
   metadata: ModelMetadataCatalog
+  modelProtocols?: Record<string, "chat" | "responses">
 }): Model.Info {
   const modelID = Model.ID.make(input.model.id)
   const resolved = resolveMetadata(input.metadata, input.model)
   const metadata = resolved.metadata
   const image = isImageModel(input.model.id)
   const anthropic = usesAnthropicMessages(input.model, resolved.npm)
-  const responses = !anthropic && usesResponses(input.model, metadata?.family)
+  const responses =
+    !anthropic && usesResponses(input.model, metadata?.family, input.modelProtocols)
   const efforts = metadata?.reasoningEfforts ?? (anthropic ? [...DEFAULT_ANTHROPIC_EFFORTS] : undefined)
   const defaults = Model.Info.default(input.providerID, modelID)
   const limit = resolveLimit({
@@ -365,14 +377,29 @@ export function usesAnthropicMessages(model: CatalogModel, npm?: string) {
 }
 
 /**
- * Current OpenAI reasoning and Codex families speak the Responses API. Older
- * chat families such as gpt-4 and gpt-4o stay on chat completions. The model
- * id is matched without a provider prefix, so Copilot/gpt-5.3-codex and
- * gpt-5.3-codex follow the same rule. An explicit metadata family wins.
+ * Current OpenAI reasoning and Codex families, and Grok families, speak the
+ * Responses API. Older chat families such as gpt-4 and gpt-4o stay on chat
+ * completions. The model id is matched without a provider prefix, so
+ * Copilot/gpt-5.3-codex and OpenRouter/x-ai/grok-4.7 follow the same rule as
+ * the bare ids. An explicit metadata family wins, and `modelProtocols` can
+ * force either protocol for one catalog id.
  */
-export function usesResponses(model: CatalogModel, family?: string) {
+export function usesResponses(
+  model: CatalogModel,
+  family?: string,
+  modelProtocols?: Record<string, "chat" | "responses">,
+) {
+  const override = protocolOverride(model.id, modelProtocols)
+  if (override === "chat") return false
+  if (override === "responses") return true
   const identity = `${family ?? ""} ${modelIdentity(model.id)}`.toLowerCase()
-  return /(?:^|[^a-z0-9])(?:codex|gpt-(?:[5-9]|[1-9][0-9]+))(?![a-z0-9])/.test(identity)
+  return /(?:^|[^a-z0-9])(?:codex|grok|gpt-(?:[5-9]|[1-9][0-9]+))(?![a-z0-9])/.test(identity)
+}
+
+function protocolOverride(modelID: string, modelProtocols?: Record<string, "chat" | "responses">) {
+  if (!modelProtocols) return
+  const direct = modelProtocols[modelID] ?? modelProtocols[modelIdentity(modelID)]
+  return direct === "chat" || direct === "responses" ? direct : undefined
 }
 
 function modelIdentity(modelID: string) {
@@ -546,6 +573,7 @@ function readOptions(input: Record<string, unknown>): ConnectorOptions {
     providerName: stringOption(input.providerName),
     protocol:
       input.protocol === "responses" ? "responses" : input.protocol === "chat" ? "chat" : undefined,
+    modelProtocols: protocolMap(input.modelProtocols),
     modelMetadataURL:
       input.modelMetadataURL === false ? false : stringOption(input.modelMetadataURL),
     discoveryTimeoutMs:
@@ -562,6 +590,16 @@ function readOptions(input: Record<string, unknown>): ConnectorOptions {
 
 function stringOption(value: unknown) {
   return typeof value === "string" && value.trim() !== "" ? value : undefined
+}
+
+function protocolMap(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const protocols: Record<string, "chat" | "responses"> = {}
+  for (const [modelID, protocol] of Object.entries(value)) {
+    if (modelID.trim() === "") continue
+    if (protocol === "chat" || protocol === "responses") protocols[modelID] = protocol
+  }
+  return Object.keys(protocols).length > 0 ? protocols : undefined
 }
 
 function hasHeader(headers: Record<string, string>, name: string) {
