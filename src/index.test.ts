@@ -211,7 +211,7 @@ describe("plugin", () => {
       const { ctx, registered } = context({
         baseURL: "http://cliproxy.test:8317",
         modelMetadataURL: false,
-        modelProtocols: { "grok-4.7": "chat", ignored: "messages", "": "chat" },
+        modelProtocols: { " grok-4.7 ": "chat", ignored: "messages", "": "chat", "   ": "responses" },
       })
 
       await plugin.setup(ctx)
@@ -223,7 +223,7 @@ describe("plugin", () => {
       const byID = Object.fromEntries(
         (registered.at(-1)?.models ?? []).map((model) => [model.id, model.package]),
       )
-      expect(byID["grok-4.7"]).toBeUndefined()
+      expect(byID["grok-4.7"]).toBe("@opencode/ai/providers/openai-compatible")
       expect(byID["NewLlama/qwen3-coder:30b"]).toBeUndefined()
     } finally {
       await restoreFetch(originalFetch)
@@ -778,7 +778,7 @@ describe("buildModel", () => {
         metadata: {},
         modelProtocols: { "grok-4.7": "chat" },
       }).package,
-    ).toBeUndefined()
+    ).toBe("@opencode/ai/providers/openai-compatible")
     expect(
       buildModel({
         providerID,
@@ -786,7 +786,13 @@ describe("buildModel", () => {
         metadata: {},
         modelProtocols: { "grok-4.7": "chat" },
       }).package,
-    ).toBeUndefined()
+    ).toBe("@opencode/ai/providers/openai-compatible")
+  })
+
+  test("does not treat a bare or underscored grok token as a grok model", () => {
+    for (const id of ["grok", "grok_image", "OpenRouter/x-ai/grok", "mygrok-4"]) {
+      expect(buildModel({ providerID, model: { id }, metadata: {} }).package).toBeUndefined()
+    }
   })
 
   test("lets modelProtocols force responses without changing other models", () => {

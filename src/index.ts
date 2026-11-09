@@ -283,8 +283,12 @@ export function buildModel(input: {
   const metadata = resolved.metadata
   const image = isImageModel(input.model.id)
   const anthropic = usesAnthropicMessages(input.model, resolved.npm)
+  const protocol = anthropic
+    ? undefined
+    : protocolOverride(input.model.id, input.modelProtocols)
   const responses =
-    !anthropic && usesResponses(input.model, metadata?.family, input.modelProtocols)
+    protocol === "responses" ||
+    (protocol !== "chat" && usesResponses(input.model, metadata?.family))
   const efforts = metadata?.reasoningEfforts ?? (anthropic ? [...DEFAULT_ANTHROPIC_EFFORTS] : undefined)
   const defaults = Model.Info.default(input.providerID, modelID)
   const limit = resolveLimit({
@@ -297,7 +301,13 @@ export function buildModel(input: {
     ...defaults,
     name: input.model.live?.name ?? metadata?.name ?? displayName(input.model.id),
     ...(metadata?.family ? { family: Model.Family.make(metadata.family) } : {}),
-    ...(anthropic ? { package: MESSAGES_PACKAGE } : responses ? { package: RESPONSES_PACKAGE } : {}),
+    ...(anthropic
+      ? { package: MESSAGES_PACKAGE }
+      : responses
+        ? { package: RESPONSES_PACKAGE }
+        : protocol === "chat"
+          ? { package: CHAT_PACKAGE }
+          : {}),
     capabilities: {
       tools: metadata?.toolCall ?? !image,
       input:
@@ -393,7 +403,9 @@ export function usesResponses(
   if (override === "chat") return false
   if (override === "responses") return true
   const identity = `${family ?? ""} ${modelIdentity(model.id)}`.toLowerCase()
-  return /(?:^|[^a-z0-9])(?:codex|grok|gpt-(?:[5-9]|[1-9][0-9]+))(?![a-z0-9])/.test(identity)
+  return /(?:^|[^a-z0-9])(?:codex|grok-[a-z0-9.]+|gpt-(?:[5-9]|[1-9][0-9]+))(?![a-z0-9])/.test(
+    identity,
+  )
 }
 
 function protocolOverride(modelID: string, modelProtocols?: Record<string, "chat" | "responses">) {
@@ -596,8 +608,9 @@ function protocolMap(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return
   const protocols: Record<string, "chat" | "responses"> = {}
   for (const [modelID, protocol] of Object.entries(value)) {
-    if (modelID.trim() === "") continue
-    if (protocol === "chat" || protocol === "responses") protocols[modelID] = protocol
+    const id = modelID.trim()
+    if (id === "") continue
+    if (protocol === "chat" || protocol === "responses") protocols[id] = protocol
   }
   return Object.keys(protocols).length > 0 ? protocols : undefined
 }

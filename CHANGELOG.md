@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `modelProtocols` keys are trimmed, and `"chat"` sets the chat-completions
+  package on that model instead of leaving it to inherit a provider-wide
+  `responses` default. Grok routing matches `grok-<version>`, not a bare
+  `grok` token or a name such as `grok_image`.
+
 ## [0.4.1] - 2026-11-09
 
 ### Changed
