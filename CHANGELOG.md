@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-10
+
 ### Fixed
 
 - `modelProtocols` keys are trimmed, and `"chat"` sets the chat-completions
@@ -20,10 +22,15 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 - Route Grok families (`grok-4.7` and other `grok-*` IDs, including prefixed
   catalog IDs such as `OpenRouter/x-ai/grok-4.7`) through the Responses API.
-  CLIProxyAPI already converts those requests upstream, and chat-completions
-  streams are only partially archived. Claude, older GPT chat families, and
-  other models such as Ollama `NewLlama/...` stay on their current protocols.
-  The provider-wide `protocol` default is unchanged.
+  CLIProxyAPI's xAI executor already speaks Responses upstream, so this removes
+  a translation step. Tested with tool calls and reasoning over several turns,
+  against xAI directly and through OpenRouter. If you run CLIProxyAPI's
+  `cpa-session-archive` plugin, Grok responses are now archived completely;
+  that plugin stores only the first chunk of a streamed chat-completions
+  response. Claude, older GPT chat families, and other models such as Ollama
+  `NewLlama/...` stay on their current protocols. The provider-wide `protocol`
+  default is unchanged. Use `modelProtocols` to send a model back to chat
+  completions.
   ([#9](https://github.com/moutansos/opencode2-cliproxyapi/pull/9))
 
 ### Added
@@ -39,9 +46,11 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 - Send the OpenCode session ID as `X-Thread-Id` on model requests so
   CLIProxyAPI session archives group every request from one session instead
-  of recording each request as its own session. Set `archiveThread` to
-  `false` to disable it. A caller-supplied thread or authorization header is
-  left unchanged, matched without regard to casing.
+  of recording each request as its own session. It does not change which
+  credential CLIProxyAPI selects: session affinity uses OpenCode's
+  `X-Session-Id` first. Set `archiveThread` to `false` to disable it. A
+  caller-supplied thread or authorization header is left unchanged, matched
+  without regard to casing.
   ([#8](https://github.com/moutansos/opencode2-cliproxyapi/pull/8))
 
 ### Fixed
@@ -165,7 +174,8 @@ Initial release of `opencode2-cliproxyapi`, the OpenCode V2 port of
 - Manual merging of existing `provider.cliproxyapi` config. V2 layers user
   configuration over registered provider sources automatically.
 
-[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/moutansos/opencode2-cliproxyapi/compare/v0.3.0...v0.3.1
